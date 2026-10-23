@@ -45,35 +45,29 @@ module InspectTransactionalEmailHandoff
       template_preference: :preferred_order_cancellation_template_id
     },
     {
-      type: SpreePlunk::TransactionalEmailTypes::SHIPMENT_SHIPPED,
-      label: 'Shipment shipped',
-      enabled_preference: :preferred_shipment_shipped_email_enabled,
-      template_preference: :preferred_shipment_shipped_template_id
+      type: SpreePlunk::TransactionalEmailTypes::FULFILLMENT_FULFILLED,
+      label: 'Fulfillment fulfilled',
+      enabled_preference: :preferred_fulfillment_fulfilled_email_enabled,
+      template_preference: :preferred_fulfillment_fulfilled_template_id
     },
     {
-      type: SpreePlunk::TransactionalEmailTypes::REIMBURSEMENT,
-      label: 'Reimbursement',
-      enabled_preference: :preferred_reimbursement_email_enabled,
-      template_preference: :preferred_reimbursement_template_id
+      type: SpreePlunk::TransactionalEmailTypes::RETURN_REFUNDED,
+      label: 'Return refund',
+      enabled_preference: :preferred_return_refunded_email_enabled,
+      template_preference: :preferred_return_refunded_template_id
     },
     {
       type: SpreePlunk::TransactionalEmailTypes::STORE_OWNER_NOTIFICATION,
       label: 'Store owner notification',
       enabled_preference: :preferred_store_owner_notification_email_enabled,
       template_preference: :preferred_store_owner_notification_template_id
-    },
-    {
-      type: SpreePlunk::TransactionalEmailTypes::PAYMENT_LINK,
-      label: 'Payment link',
-      enabled_preference: :preferred_payment_link_email_enabled,
-      template_preference: :preferred_payment_link_template_id
     }
   ].freeze
 
   SPREE_EMAIL_MAILERS = [
     'Spree::OrderMailer',
-    'Spree::ShipmentMailer',
-    'Spree::ReimbursementMailer',
+    'Spree::FulfillmentMailer',
+    'Spree::ReturnMailer',
     'Spree::NewsletterMailer'
   ].freeze
 
