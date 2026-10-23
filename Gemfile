@@ -14,9 +14,11 @@ else
 end
 
 gem 'spree', spree_opts
-gem 'spree_admin', spree_opts
 
-gem 'spree_dev_tools', '>= 0.6.0.rc1'
+gem 'spree_dev_tools', '1.0.0.beta2'
+gem 'spree_plunk', path: '.'
+gem 'dotenv'
+gem 'webmock'
 
 if ENV['DB'] == 'mysql'
   gem 'mysql2'
@@ -27,5 +29,3 @@ else
 end
 
 gem 'propshaft'
-
-gemspec

@@ -29,13 +29,13 @@ Gem::Specification.new do |s|
   s.require_path = 'lib'
   s.requirements << 'none'
 
-  spree_opts = '>= 5.3.0'
-  s.add_dependency 'spree', spree_opts
-  s.add_dependency 'spree_admin', spree_opts
+  # The dashboard's editable email-template registry is provided by Spree core.
+  # Spree 6 removed the old Rails admin engine (`spree_admin`).
+  s.add_dependency 'spree_core', '>= 6.0.0.rc5'
 
   s.add_development_dependency 'dotenv'
   s.add_development_dependency 'rubocop-rspec'
-  s.add_development_dependency 'spree_dev_tools'
+  s.add_development_dependency 'spree_dev_tools', '>= 1.0.0.beta2'
   s.add_development_dependency 'webmock'
   s.add_development_dependency 'i18n-tasks'
 end

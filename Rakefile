@@ -20,6 +20,6 @@ task :test_app do
   ENV['LIB_NAME'] = 'spree_plunk'
   Rake::Task['extension:test_app'].execute(
     install_storefront: false,
-    install_admin: true
+    install_admin: false
   )
 end
