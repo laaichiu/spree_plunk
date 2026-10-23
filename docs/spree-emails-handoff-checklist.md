@@ -1,6 +1,6 @@
 # `spree_emails` Handoff Checklist
 
-Last updated: 2026-05-31
+Last updated: 2026-10-23
 
 This checklist is for host apps that remove `spree_emails` and expect `spree_plunk` plus hosted Plunk to own customer-facing transactional sends.
 
@@ -23,12 +23,14 @@ Expected preflight signals when `spree_emails` has been removed:
 
 - `spree_emails gem loaded: false`
 - `Spree::Emails::Engine: missing`
-- `Spree::OrderMailer`, `Spree::ShipmentMailer`, `Spree::ReimbursementMailer`, and `Spree::NewsletterMailer`: `missing`
+- `Spree::OrderMailer`, `Spree::FulfillmentMailer`, `Spree::ReturnMailer`, and `Spree::NewsletterMailer`: `missing`
 - `spree_plunk gem loaded: true`
 - `transactional master switch: ON`
-- sender domain matches a verified Plunk sender domain
+- the inspector prints the configured sender domain; verify separately in Plunk that this domain is verified before sending
 
-If `spree_emails` is absent and a row says `none when spree_emails absent`, that email type will not be sent until its `spree_plunk` switch is enabled.
+On Spree 6.0.0.rc5 and later, also open **Settings → Emails → Templates**. `spree_plunk` registers the seven customer email types it sends, Spree's shared layout, and the shared partials those templates render. The editor works while the `spree_emails` engine and mailers are absent. A published Spree override is rendered by Spree and delivered through Plunk's inline send fields. Drafts do not affect delivery. Without a published Spree version, the configured Plunk Template ID is used; if no ID is configured, delivery uses the presenter's inline HTML body.
+
+If `spree_emails` is absent and a row says `none when spree_emails absent`, that email type will not be sent until both the transactional master switch and its `spree_plunk` type switch are enabled.
 
 ## Validation Levels
 
@@ -53,62 +55,11 @@ Receiving one email in the test inbox is a useful signal, but it is not the whol
 - no Plunk workflow, campaign, or automation is also configured to send the same operational email from the same event
 - applicable Spree markers move once, such as `confirmation_delivered` or `store_owner_notification_delivered`
 
-When `spree_emails` has been removed, duplicates from `Spree::OrderMailer`, `Spree::ShipmentMailer`, `Spree::ReimbursementMailer`, and `Spree::NewsletterMailer` should be impossible because those constants are missing. Duplicates can still happen from another host-app mailer, a queued old job, a Plunk workflow that sends the same message, or triggering the same action twice.
+When `spree_emails` has been removed, duplicates from `Spree::OrderMailer`, `Spree::FulfillmentMailer`, `Spree::ReturnMailer`, and `Spree::NewsletterMailer` should be impossible because those constants are missing. Duplicates can still happen from another host-app mailer, a queued old job, a Plunk workflow that sends the same message, or triggering the same action twice.
 
-## Latest Host-App Validation Snapshot
+## Automated Validation
 
-Captured on 2026-05-31 from a local Spree starter host app after removing `spree_emails`. The host app used a path checkout of `spree_plunk`, a verified sender domain, and an authorized test inbox. Do not treat this as a substitute for running the inspector in a different host app.
-
-| Check | Result |
-| --- | --- |
-| `spree_emails` gem loaded | No |
-| `Spree::Emails::Engine` | Missing |
-| `Spree::OrderMailer` | Missing |
-| `Spree::ShipmentMailer` | Missing |
-| `Spree::ReimbursementMailer` | Missing |
-| `Spree::NewsletterMailer` | Missing |
-| `spree_plunk` gem loaded | Yes |
-| Plunk transactional master switch | On |
-| Verified sender domain in use | Yes; use your own verified sender domain |
-| Enabled Plunk email types | password reset, newsletter confirmation, order confirmation, order confirmation resend, order cancellation, shipment shipped, reimbursement, store owner notification, payment link |
-| Disabled Plunk email types | none |
-
-This means the host app is configured so all currently supported `spree_emails` handoff types are owned by `spree_plunk`.
-
-## 2026-05-31 Validation Notes
-
-The local validation used two kinds of checks:
-
-- Direct-send smoke checks confirmed the hosted Plunk `/v1/send` path, verified sender domain, template or inline body rendering, and recipient delivery against an authorized test inbox. A later full-send runner session lost its terminal handle, so it was not repeated to avoid duplicate emails.
-- Non-delivery trigger probes stubbed the Plunk HTTP transactional send response as successful while leaving the Spree event, subscriber, job, presenter, and delivery-marker code paths active.
-
-Trigger probe results:
-
-| Trigger | Expected `spree_plunk` sends | Result |
-| --- | ---: | --- |
-| `customer.password_reset_requested` | 1 | Pass |
-| `Spree::Newsletter::Subscribe` publishing `newsletter_subscriber.subscription_requested` | 1 | Pass |
-| `order.completed` with customer and store-owner notification enabled | 2 | Pass |
-| `order.resend_confirmation_email` | 1 | Pass |
-| `Spree::Orders::Cancel` publishing `order.canceled` with `notify_customer: true` | 1 | Pass |
-| `shipment.shipped` using the shipment model default `event_payload` | 1 | Pass |
-| `reimbursement.reimbursed` using the reimbursement model default `event_payload` | 1 | Pass |
-| Payment-link job payload matching the admin controller decorator | 1 | Pass |
-
-Duplicate checks observed in the trigger probes:
-
-- `ActionMailer` deliveries observed in the runner: 0
-- `confirmation_delivered` moved to true after order confirmation/resend paths
-- `store_owner_notification_delivered` moved to true after store-owner notification
-- temporary test orders, test newsletter subscriptions, and temporary store-owner notification settings were cleaned up after the run
-
-Important note: `shipment.shipped` and `reimbursement.reimbursed` subscribers require the normal model event payload so they can resolve the resource id. A custom payload that omits `id` is not a valid handoff trigger for these email types.
-
-Remaining manual confirmation for full live acceptance:
-
-- confirm the Plunk delivery log has one matching transactional send per live trigger window
-- confirm the test inbox has one matching email per live trigger window
-- confirm no Plunk workflow or campaign is configured to send the same operational email from the same event
+The RSpec suite covers the Spree 6 event names, presenters, job idempotency, preference migrations, and rendering previews for all seven registered customer email templates. It verifies the Plunk HTTP request with stubs; it does not verify live Plunk delivery or replace the host-app checks in **Live Verification Steps**.
 
 ## Handoff Matrix
 
@@ -117,12 +68,12 @@ Remaining manual confirmation for full live acceptance:
 | Password reset | Store API customer password reset request | Implemented | `password_reset_email_enabled` | Plunk delivery contains reset URL/token as non-persistent data | No bundled `spree_emails` Store API reset mailer in current local Spree source |
 | Newsletter confirmation | Newsletter subscription request | Implemented | `newsletter_confirmation_email_enabled` | Plunk delivery contains verification URL/token as non-persistent data | Disable any other newsletter confirmation sender |
 | Order confirmation | Checkout completion with `notify_customer: true` | Implemented | `order_confirmation_email_enabled` | Plunk delivery accepted and order `confirmation_delivered` becomes true | Skips when `notify_customer: false` or already delivered |
-| Order confirmation resend | Admin/order detail resend action | Implemented | `order_confirmation_resend_email_enabled` | Plunk delivery accepted and order `confirmation_delivered` becomes true | Shares order confirmation delivered marker |
-| Order cancellation | Order cancellation with customer notification enabled | Implemented | `order_cancellation_email_enabled` | Plunk delivery contains order line items, totals, addresses, and shipments | Skips when `notify_customer: false` |
-| Shipment shipped | `shipment.shipped` event | Implemented | `shipment_shipped_email_enabled` | Plunk delivery contains tracking and `shipment_items_html` | Choose one sender when `spree_emails` is present |
-| Reimbursement | `reimbursement.reimbursed` event | Implemented | `reimbursement_email_enabled` | Plunk delivery contains refund amount, `return_items_html`, and exchange fragments | Choose one sender when `spree_emails` is present |
-| Store owner notification | Order completion when store has `new_order_notifications_email` | Implemented | `store_owner_notification_email_enabled` | Plunk delivery accepted and order `store_owner_notification_delivered` becomes true | Skips when already delivered |
-| Payment link | Admin payment link action | Implemented | `payment_link_email_enabled` | Plunk delivery contains payment URL as non-persistent data | Decorator bypasses `Spree::OrderMailer.payment_link_email` when enabled |
+| Split-checkout confirmation | `order_group.completed` with `notify_customer: true` | Implemented | `order_confirmation_email_enabled` | Plunk delivery accepted and order group `confirmation_delivered` becomes true | Sends one purchase-level confirmation and suppresses child-order confirmations |
+| Order confirmation resend | Admin order or order-group resend action | Implemented | `order_confirmation_resend_email_enabled` | Plunk delivery accepted and order or order group `confirmation_delivered` becomes true | Shares the corresponding order/order-group delivered marker |
+| Order cancellation | Order cancellation with customer notification enabled | Implemented | `order_cancellation_email_enabled` | Plunk delivery contains order line items, totals, addresses, and fulfillments | Skips when `notify_customer: false` |
+| Fulfillment notification | `fulfillment.fulfilled` event | Implemented | `fulfillment_fulfilled_email_enabled` | Plunk delivery contains tracking and fulfillment item details | Choose one sender when `spree_emails` is present |
+| Return refund | `return.refunded` event | Implemented | `return_refunded_email_enabled` | Plunk delivery contains refunded amount and returned-item details | Choose one sender when `spree_emails` is present |
+| Store owner notification | Order or order-group completion when store has `new_order_notifications_email` | Implemented | `store_owner_notification_email_enabled` | Plunk delivery accepted and order or order group `store_owner_notification_delivered` becomes true | Skips when already delivered |
 
 ## Live Verification Steps
 
@@ -134,8 +85,8 @@ Remaining manual confirmation for full live acceptance:
 6. Watch Sidekiq for `SpreePlunk::SendTransactionalEmailJob`.
 7. Confirm Plunk delivery or failure logs for the matching recipient and email type.
 8. Confirm Spree state markers when applicable:
-   - `confirmation_delivered` for order confirmation and resend
-   - `store_owner_notification_delivered` for store owner notification
+   - `confirmation_delivered` for order confirmation and resend on the order or order group
+   - `store_owner_notification_delivered` for store owner notification on the order or order group
 9. Confirm no `spree_emails` mailer constant is present and no duplicate sender is observed using the duplicate checks above.
 10. Disable or leave off any email type that has not passed live verification.
 
@@ -148,5 +99,6 @@ Remaining manual confirmation for full live acceptance:
 - export completion from `Spree::ExportMailer`
 - report completion from `Spree::ReportMailer`
 - webhook endpoint disabled notifications from `Spree::WebhookMailer`
+- Admin payment-link emails; Spree currently has no event trigger this extension can subscribe to.
 
 These are outside `spree_emails` storefront transactional replacement. Replacing them needs separate ownership, recipient, template data, and failure-behavior decisions.

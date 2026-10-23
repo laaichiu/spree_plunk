@@ -4,14 +4,16 @@
 
 It is built for marketing use cases such as workflows, campaigns, and audience segmentation. Transactional emails still stay with Spree/Rails by default unless an operator explicitly enables the Plunk transactional email master switch and one of the supported email-type switches.
 
+`spree_plunk` currently targets Spree 6.0.0.rc5 or later. Spree 6 core provides the editable email-template registry, Admin API, renderer, and preview workflow used here.
+
 ## What This Extension Does
 
-- syncs Spree users and newsletter subscribers into Plunk contacts
-- refreshes Plunk contact data when user or address records change
+- syncs Spree customers and newsletter subscribers into Plunk contacts
+- refreshes Plunk contact data when customer or address records change
 - tracks selected Spree commerce events into Plunk for workflows and segmentation
 - keeps marketing consent explicit instead of inferring it from behavioral events
 - supports both hosted Plunk and self-hosted Plunk through a configurable base API URL
-- can optionally accept contact subscription-state callbacks from Plunk and write them back into Spree
+- can optionally accept authenticated Plunk unsubscribe callbacks; subscribe callbacks never bypass Spree confirmation
 - can optionally send the first supported transactional email types through Plunk's HTTP send API
 
 ## Current Features
@@ -20,8 +22,8 @@ It is built for marketing use cases such as workflows, campaigns, and audience s
 
 The extension currently syncs contact state from these Spree-side sources:
 
-- user created
-- user updated
+- customer created
+- customer updated
 - address created
 - address updated
 - newsletter subscriber created
@@ -61,10 +63,10 @@ The extension currently sends these namespaced events to Plunk:
 - `spree.coupon.denied`
 - `spree.checkout.step_viewed`
 - `spree.checkout.step_completed`
-- `spree.order.completed`
+- `spree.order.placed`
 - `spree.order.canceled`
-- `spree.shipment.shipped`
-- `spree.reimbursement.paid`
+- `spree.fulfillment.fulfilled`
+- `spree.return.refunded`
 
 These events are intended for:
 
@@ -89,37 +91,51 @@ The current direct-send handoff supports:
 
 - Store API password reset emails from `customer.password_reset_requested`
 - newsletter double opt-in emails from `newsletter_subscriber.subscription_requested`
-- checkout-completion order confirmations from `order.completed`
-- explicit admin/order-detail order confirmation resends from `order.resend_confirmation_email`
+- checkout-completion confirmations from `order.placed` and, for a checkout split across multiple orders, `order_group.completed`
+- explicit admin order or order-group confirmation resends from `order.resend_confirmation_email`
 - order cancellation emails from `order.canceled`
-- shipment notifications from `shipment.shipped`
-- reimbursement notifications from `reimbursement.reimbursed`
-- store owner new-order notifications from `order.completed`
-- Admin payment link emails from the order payment-link action
+- fulfillment notifications from `fulfillment.fulfilled`
+- return refund notifications from `return.refunded`
+- store owner new-order notifications from `order.placed` and `order_group.completed`
 
 Current ownership boundary:
 
 - `spree_plunk` owns only the explicitly enabled email types above.
+- Admin payment-link emails remain with Spree; this extension has no Spree 6 trigger for them.
 - Spree/Rails still owns invitation emails, reports, webhooks, exports, and any other extension-provided mailers that are not listed above.
 - Any email type that is also sent by `spree_emails` can duplicate if both systems are configured to send it. Keep one owner per email type while this handoff is partial.
 - Password reset is a good early Plunk owner because the local Spree source emits `customer.password_reset_requested`, but the standard consumer email subscriber set does not include a bundled password reset subscriber.
-- Order completion handoff preserves `notify_customer: false` and `confirmation_delivered` guards before enqueueing a Plunk send.
+- Order placement reads `notify_customer: false` from event metadata, routes split checkouts through the order-group confirmation, and preserves the order/order-group `confirmation_delivered` guards.
 - Reset and verification tokens are sent to Plunk as non-persistent template data.
 - Storefront URLs may be local during testing, but the sender email domain must still be verified in Plunk.
-- A local host-app validation on 2026-05-31 confirmed `spree_emails` absent, all current `spree_plunk` transactional switches enabled, no `ActionMailer` deliveries during trigger probes, and expected `spree_plunk` ownership for each supported trigger. Full live acceptance still requires checking Plunk delivery logs and the test inbox for one delivery per trigger window.
+- A historical host-app validation on 2026-05-31 covered the earlier Spree event/model names. A complete live handoff across the current canonical Spree 6 triggers has not been verified; use the handoff checklist before relying on production delivery.
 
 See [docs/transactional-email-inventory.md](docs/transactional-email-inventory.md) for the detailed email attribution matrix.
 
+### Spree Dashboard Email Templates
+
+On Spree 6.0.0.rc5 and later, `spree_plunk` registers its customer-facing email templates with Spree core. They appear under **Settings → Emails → Templates** without installing `spree_emails`:
+
+- password reset and newsletter confirmation
+- order confirmation and resend (including split-checkout order groups), and order cancellation
+- fulfilled delivery and return refund
+- the shared Spree email layout
+
+The editor keeps drafts and only changes delivery after **Publish**. A published Spree template for the store and locale is rendered by Spree and sent through Plunk's inline `POST /v1/send` fields. Until then, the configured Plunk Template ID (or the integration's inline fallback) continues to send. This lets Spree's dashboard own the merchant edit flow while Plunk remains the delivery provider. The store owner notification remains a Plunk Template ID because it is an operator email, not a customer email.
+
+Remove `spree_emails` when using `spree_plunk` as its replacement. Installing both can register the same dashboard keys and, more importantly, leave Spree's Action Mailer subscribers able to send duplicate customer emails.
+
 ### Admin And Operations
 
-- Spree admin integration form for Plunk credentials and base URL
+- Spree Admin Plunk integration preferences for credentials and base URL
 - connectivity check against the Plunk API
 - optional default sender fields for direct transactional sends
 - optional public API key storage, intentionally unused by the current server-side MVP
-- default-off direct transactional send settings for customer-facing `spree_emails` parity
-- optional inbound subscription-state webhook guarded by a bearer token
-- duplicate-delivery protection for webhook intake
+- default-off direct transactional send settings for the supported email handoff
+- optional inbound unsubscribe webhook guarded by a bearer token
+- replay protection for webhook deliveries with a unique event or execution ID
 - retry/discard classification for async sync failures
+- stable `Idempotency-Key` values for transactional-email job retries; if Plunk reports a reused key after an ambiguous response, the job stops retrying and records the original HTTP status for delivery reconciliation
 - structured error reporting through `Rails.error.report`
 
 ## Installation
@@ -143,14 +159,16 @@ After installation:
 3. Add the Plunk base URL and secret API key.
 4. Verify contact sync and event tracking in a non-production environment first.
 
+When upgrading from a version that used `shipment` or `reimbursement` naming, rerun the install generator so it installs and runs the preference migration. It renames saved fulfillment/return email switches and Plunk template IDs. Update any Plunk templates and workflows separately: their event names and variables are owned by your Plunk project and are not rewritten by this gem.
+
 ## Spree Admin Configuration
 
-The current admin form exposes these fields.
+The Spree Admin **Plunk integration settings** expose these preferences.
 
 | Field | Required | What to enter | Notes |
 | --- | --- | --- | --- |
 | `Plunk Base URL` | Yes | The Plunk API base URL, such as `https://next-api.useplunk.com` or your self-hosted API base like `https://plunk.example.com/api` | Use the API base only. Do not paste `/contacts`, `/events/track`, or `/v1/track`. |
-| `Secret API Key` | Yes | A Plunk secret server key for the workspace, typically `sk_*` | This is the only key the current server-side integration needs for contact upsert, unsubscribe, and event tracking. |
+| `Secret API Key` | Yes | A Plunk secret server key for the workspace, typically `sk_*` | The server-side integration uses this for contact upsert, unsubscribe, event tracking, and direct transactional sends. |
 | `Public API Key` | No | An optional browser/public key, typically `pk_*` | Stored only for future use. The current server-side MVP does not use it. |
 | `Default Sender Email` | No | A mailbox on a Plunk-verified sending domain, such as `hello@shop.example.com` | Used by direct transactional sends. If blank, the extension falls back to the store `mail_from_address`. |
 | `Default Sender Name` | No | A display name such as `Example Store` | Used with `Default Sender Email`. If you set this, also set `Default Sender Email` so the stored sender identity is complete. |
@@ -164,16 +182,16 @@ The current admin form exposes these fields.
 | `Order Confirmation Template ID` | No | A Plunk template ID for order confirmation content | If blank, the extension sends a simple inline HTML body. |
 | `Send Order Cancellation Emails` | No | Check this when Plunk should send customer order cancellation emails | Requires `Enable Plunk Transactional Email`. Respects `notify_customer: false`. |
 | `Order Cancellation Template ID` | No | A Plunk template ID for order cancellation content | If blank, the extension sends a simple inline HTML body. |
-| `Send Shipment Shipped Emails` | No | Check this when Plunk should send shipped shipment notifications | Requires `Enable Plunk Transactional Email`. |
-| `Shipment Shipped Template ID` | No | A Plunk template ID for shipment notification content | If blank, the extension sends a simple inline HTML body. |
-| `Send Reimbursement Emails` | No | Check this when Plunk should send reimbursement notifications | Requires `Enable Plunk Transactional Email`. |
-| `Reimbursement Template ID` | No | A Plunk template ID for reimbursement notification content | If blank, the extension sends a simple inline HTML body. |
+| `Send Fulfillment Emails` | No | Check this when Plunk should send fulfillment notifications | Requires `Enable Plunk Transactional Email`. |
+| `Fulfillment Template ID` | No | A Plunk template ID for fulfillment notification content | If blank, the extension sends a simple inline HTML body. |
+| `Send Return Refund Emails` | No | Check this when Plunk should send return refund notifications | Requires `Enable Plunk Transactional Email`. |
+| `Return Refund Template ID` | No | A Plunk template ID for return refund notification content | If blank, the extension sends a simple inline HTML body. |
 | `Send Store Owner Notifications` | No | Check this when Plunk should send new-order notifications to the store owner address | Requires `Enable Plunk Transactional Email`. Respects `store_owner_notification_delivered`. |
 | `Store Owner Notification Template ID` | No | A Plunk template ID for store owner new-order notification content | If blank, the extension sends a simple inline HTML body. |
-| `Send Payment Link Emails` | No | Check this when Plunk should send Admin payment link emails | Requires `Enable Plunk Transactional Email`. When enabled, the Admin action does not call `Spree::OrderMailer.payment_link_email`. |
-| `Payment Link Template ID` | No | A Plunk template ID for payment link email content | If blank, the extension sends a simple inline HTML body. |
-| `Enable Subscription Webhook` | No | Check this only if you want Plunk contact subscription changes to write back into Spree | Disabled by default. |
-| `Subscription Webhook Authorization Token` | Required only when webhook is enabled | A shared secret that you generate yourself | Plunk will send this back in the `Authorization` header as `Bearer <token>`. |
+| `Enable Unsubscribe Webhook` | No | Check this only if Plunk unsubscribe events should remove this store's local Spree newsletter subscription | Disabled by default. `contact.subscribed` callbacks are acknowledged without changing Spree consent. |
+| `Unsubscribe Webhook Authorization Token` | Required only when webhook is enabled | A shared secret that you generate yourself | Plunk will send this back in the `Authorization` header as `Bearer <token>`. |
+
+For customer emails, a published Spree dashboard template takes precedence over the Plunk Template ID. If there is no published Spree version, the extension uses the configured Plunk template; if neither exists, it sends the presenter's inline HTML body.
 
 ### Where Each Value Comes From
 
@@ -186,7 +204,7 @@ The current admin form exposes these fields.
 #### Secret API Key
 
 - Use a secret server key from the target Plunk workspace.
-- The current extension talks to `POST /contacts` and `POST /events/track`, so it needs the secret key, not the public key.
+- The current extension talks to `POST /contacts`, `POST /events/track`, and (when enabled) `POST /v1/send`, so it needs the secret key, not the public key.
 - A public `pk_*` key will fail the connection check.
 
 #### Public API Key
@@ -208,10 +226,9 @@ The current admin form exposes these fields.
 - Template IDs are optional. When a template ID is present, Plunk renders the template with the provided `data` payload. When it is blank, the extension sends a simple inline HTML body.
 - Password reset payloads include `reset_token` and `reset_url` as non-persistent Plunk data.
 - Newsletter confirmation payloads include `verification_token`, `verification_url`, and `confirmation_url` as non-persistent Plunk data.
-- Order confirmation, cancellation, store owner notification, and payment link payloads include non-persistent order template data such as order number, customer identity, line item fragments, totals, addresses, shipment summaries, completion time, cancellation time, and store URL.
-- Shipment payloads include non-persistent shipment template data such as shipment number, order number, tracking, tracking URL, shipping method, stock location, costs, shipped time, shipped item fragments, and store URL.
-- Reimbursement payloads include non-persistent reimbursement template data such as reimbursement number, order number, status, refund amounts, return item fragments, exchange item fragments, expedited exchange flags, and store URL.
-- Payment link payloads include the payment URL as non-persistent Plunk data.
+- Order confirmation, cancellation, and store owner notification payloads include non-persistent order template data such as order number, customer identity, line item fragments, totals, addresses, fulfillment summaries, completion time, cancellation time, and store URL.
+- Fulfillment payloads include non-persistent tracking, delivery method, cost, fulfilled time, item fragments, and store URL.
+- Return payloads include non-persistent return number, status, refunded amount, returned item fragments, and store URL.
 - Localhost storefront URLs are acceptable in test links, but the sender email domain must be verified in Plunk even for local testing.
 
 ## Recommended Setup Flow
@@ -220,8 +237,8 @@ The current admin form exposes these fields.
 2. In Spree Admin, set `Plunk Base URL` and `Secret API Key`.
 3. Run the built-in connection check from the admin UI.
 4. Create or update a newsletter subscriber in Spree and confirm that a Plunk contact is created.
-5. Complete a test order and confirm that Plunk receives `spree.order.completed`.
-6. Enable the inbound subscription webhook only after the outbound contact sync path is already behaving correctly.
+5. Complete a test order and confirm that Plunk receives `spree.order.placed`.
+6. Enable the inbound unsubscribe webhook only after the outbound contact sync path is already behaving correctly.
 
 ### Transactional Email Setup Flow
 
@@ -229,11 +246,11 @@ The current admin form exposes these fields.
 2. In Spree Admin, set `Default Sender Email` to a mailbox on that verified domain, or make sure the store `mail_from_address` already uses one.
 3. Enable `Enable Plunk Transactional Email`.
 4. Enable exactly the email types that Plunk should own.
-5. Add Plunk template IDs if you want Plunk-managed template content; otherwise the extension will send simple inline HTML.
-6. Trigger the selected email type, such as password reset, newsletter subscription request, order completion, order cancellation, shipment shipped, reimbursement, payment link, or explicit order confirmation resend.
+5. For customer emails, either publish a Spree dashboard template or add the matching Plunk template ID as a fallback; with neither configured, the extension sends its inline HTML body.
+6. Trigger the selected email type, such as password reset, newsletter subscription request, order placement, order cancellation, fulfillment, return refund, or explicit order confirmation resend.
 7. Watch Sidekiq and Plunk delivery logs for send failures such as unverified sender domains.
 
-Copy-ready Plunk template HTML lives in [`plunk_templates/`](plunk_templates/). It includes Transactional templates for the Spree Admin template ID fields and a Marketing campaign template that matches the storefront visual language.
+Copy-ready Plunk template HTML lives in [`plunk_templates/`](plunk_templates/). These files are examples to copy into Plunk; the gem does not import, create, or synchronize Plunk templates. The directory includes Transactional templates for the Plunk Template ID fallback fields and a Marketing campaign example.
 
 To inspect a host app after removing `spree_emails`, run:
 
@@ -252,45 +269,44 @@ Useful variables include:
 
 - `{{store_name}}`, `{{store_code}}`, `{{store_url}}`
 - `{{recipient_email}}`, `{{customer_email}}`, `{{customer_name}}`, `{{customer_first_name}}`, `{{customer_last_name}}`
-- `{{order_number}}`, `{{order_state}}`, `{{payment_state}}`, `{{shipment_state}}`, `{{completed_at}}`, `{{canceled_at}}`
-- `{{order_total}}`, `{{item_total_display}}`, `{{shipment_total_display}}`, `{{tax_total_display}}`, `{{discount_total_display}}`
+- `{{order_number}}`, `{{status}}`, `{{payment_status}}`, `{{fulfillment_status}}`, `{{completed_at}}`, `{{canceled_at}}`
+- `{{order_total}}`, `{{item_total_display}}`, `{{delivery_total_display}}`, `{{tax_total_display}}`, `{{discount_total_display}}`
 - `{{line_items_html}}` or `{{line_items_text}}`
 - `{{totals_html}}` or `{{totals_text}}`
 - `{{shipping_address_text}}`, `{{billing_address_text}}`
-- `{{shipments_html}}` or `{{shipments_text}}`
-- `{{payment_url}}` for payment link emails
+- `{{fulfillments_html}}` or `{{fulfillments_text}}`
 
-The HTML fragments are pre-rendered by `spree_plunk` because Plunk's current template replacement is variable-based and is not a full loop/template language. The same payload also includes structured `line_items`, `totals`, `shipments`, `shipping_address`, and `billing_address` values for future workflow/API use. Order-backed transactional data is sent as non-persistent Plunk data so receipts do not overwrite long-lived contact profile fields.
+The copy-ready templates use pre-rendered HTML fragments for predictable email markup and simpler Plunk templates. The same payload also includes structured `line_items`, `totals`, `fulfillments`, `shipping_address`, and `billing_address` values for custom Plunk templates and workflows. Order-backed transactional data is sent as non-persistent Plunk data so receipts do not overwrite long-lived contact profile fields.
 
-### Plunk Template Variables For Shipment Emails
+### Plunk Template Variables For Fulfillment Emails
 
-Shipment shipped emails expose top-level Plunk variables. Useful variables include:
+Fulfillment notifications expose top-level Plunk variables. Useful variables include:
 
 - `{{store_name}}`, `{{store_code}}`, `{{store_url}}`
 - `{{recipient_email}}`, `{{customer_email}}`, `{{customer_name}}`
 - `{{order_number}}`, `{{order_total}}`
-- `{{shipment_number}}`, `{{shipment_state}}`, `{{shipped_at}}`
-- `{{shipping_method}}`, `{{stock_location_name}}`
+- `{{fulfillment_id}}`, `{{fulfillment_number}}`, `{{fulfillment_status}}`, `{{fulfilled_at}}`
+- `{{delivery_method_name}}`, `{{stock_location_name}}`
 - `{{tracking}}`, `{{tracking_url}}`, `{{tracking_link_html}}`
-- `{{cost_display}}`, `{{total_display}}`, `{{discount_total_display}}`
-- `{{shipment_items_html}}` or `{{shipment_items_text}}`
+- `{{delivery_total}}`, `{{delivery_total_display}}`, `{{discount_total_display}}`
+- `{{fulfillment_items_html}}` or `{{fulfillment_items_text}}`
 
-The same payload also includes structured `shipment_items` for future API/workflow use. Shipment template data is sent as non-persistent Plunk data.
+The same payload also includes structured `fulfillment_items` for future API/workflow use. Fulfillment template data is sent as non-persistent Plunk data.
 
-### Plunk Template Variables For Reimbursement Emails
+### Plunk Template Variables For Return Refund Emails
 
-Reimbursement emails expose top-level Plunk variables. Useful variables include:
+Return refund emails expose top-level Plunk variables. Useful variables include:
 
 - `{{store_name}}`, `{{store_code}}`, `{{store_url}}`
 - `{{recipient_email}}`, `{{customer_email}}`, `{{customer_name}}`
 - `{{order_number}}`, `{{order_total}}`
-- `{{reimbursement_number}}`, `{{reimbursement_status}}`, `{{reimbursement_total_display}}`
-- `{{paid_amount_display}}`, `{{unpaid_amount_display}}`
+- `{{return_id}}`, `{{return_number}}`, `{{return_status}}`
+- `{{refund_total}}`, `{{refunded_total}}`, `{{refunded_total_display}}`, `{{refundable_total}}`, `{{refundable_total_display}}`
 - `{{return_items_html}}` or `{{return_items_text}}`
-- `{{exchange_items_html}}` or `{{exchange_items_text}}`
-- `{{awaiting_return_items_count}}`, `{{expedited_exchanges}}`, `{{expedited_exchanges_days_window}}`
 
-The same payload also includes structured `return_items` and `exchange_items` values for future API/workflow use. Reimbursement template data is sent as non-persistent Plunk data.
+The same payload also includes structured `return_items` values. Return template data is sent as non-persistent Plunk data.
+
+The current order event is `spree.order.placed`; update workflows listening for the earlier `spree.order.completed` event. Current fulfillment and return events are `spree.fulfillment.fulfilled` and `spree.return.refunded`; update workflows using the earlier shipment and reimbursement event names. Update email templates using `order_state` or `payment_state` to use `status` or `payment_status`. Shipment and reimbursement template variables were also removed in favor of fulfillment and return names. These are intentional Spree 6 contract changes, so update Plunk workflows and templates when upgrading this extension.
 
 ## API Strategy
 
@@ -309,26 +325,28 @@ This extension does not rely on `/v1/track` for server-side commerce sync. The r
 - behavioral activity does not imply marketing consent
 - only explicit newsletter opt-in should set `subscribed: true`
 - user, checkout, and order-backed contact creation should stay unsubscribed unless consent is known
+- ordinary profile sync checks Plunk with `POST /contacts/lookup`, sends `subscribed: false` only when creating a contact, and omits it for existing contacts so their state (including snooze) is preserved; this endpoint must be available, and sync fails closed if lookup fails
 - commerce events should preserve an existing customer consent state instead of downgrading or upgrading it implicitly
-- the subscription webhook is disabled by default
-- webhook writeback only accepts explicit contact subscription-state semantics
+- the unsubscribe webhook is disabled by default
+- webhook writeback only accepts explicit unsubscribe semantics; Plunk subscription state never verifies a Spree subscriber
 
-## Inbound Subscription Webhook
+## Inbound Unsubscribe Webhook
 
-When enabled, the extension can receive a Plunk contact subscription webhook and apply that change locally.
+When enabled, the extension can receive Plunk unsubscribe callbacks and remove that integration store's local newsletter subscription. Subscribe callbacks are acknowledged as no-ops: a Plunk contact state does not prove mailbox ownership and cannot replace Spree's double opt-in flow.
 
 Current behavior:
 
 - requires explicit operator opt-in
 - requires an authorization bearer token
-- accepts explicit `contact.subscribed` and `contact.unsubscribed` semantics
-- looks up the local email in Spree
-- creates or verifies the matching newsletter subscriber when Plunk subscribes the contact
-- removes the matching newsletter subscriber when Plunk unsubscribes the contact
-- updates `accepts_email_marketing` on the matching user when applicable
-- suppresses Spree event publication during the local writeback to avoid immediate echo loops
-- ignores duplicate deliveries using replay protection
-- can create a verified newsletter subscriber for a known email even when only the Plunk-side subscription state exists locally
+- accepts explicit `contact.unsubscribed` semantics
+- ignores `contact.subscribed` signals with the `spree_confirmation_required` reason
+- looks up the local email in the store attached to that Plunk integration
+- removes only that store's newsletter subscriber when Plunk unsubscribes the contact
+- records the customer's consent source as `newsletter` when the local marketing flag changes
+- preserves customer consent while another store still has a newsletter subscription
+- suppresses Spree event publication during the unsubscribe writeback to avoid immediate echo loops
+- ignores repeated deliveries when they include a unique execution, event, or delivery ID
+- ignores Plunk's temporary `snooze` and `snooze_expired` events so a pause does not revoke Spree consent
 
 ### How The Webhook Works
 
@@ -343,31 +361,32 @@ The request flow is:
 1. Spree finds the active Plunk integration by `integration_id`.
 2. The webhook must be enabled for that integration or the endpoint returns `404`.
 3. Spree checks the `Authorization` header and requires an exact bearer-token match.
-4. Spree accepts the request only if the payload clearly indicates contact subscription-state semantics.
-5. Spree resolves the contact email and applies the matching local subscribe or unsubscribe writeback.
+4. Spree accepts the request only if the payload clearly indicates an unsubscribe state.
+5. Spree resolves the contact email and removes the matching local newsletter subscription. A subscribe state is ignored and must be confirmed through Spree.
 6. Duplicate deliveries are ignored so the endpoint stays idempotent.
 
-The current webhook processor accepts these signals as proof of contact subscription state:
+The webhook processes these unsubscribe signals:
 
-- `contact.subscribed: true`
 - `contact.subscribed: false`
-- top-level `subscribed: true`
 - top-level `subscribed: false`
-- event name `contact.subscribed`
 - event name `contact.unsubscribed`
+
+Explicit `contact.subscribed: true`, top-level `subscribed: true`, and event name `contact.subscribed` are acknowledged as no-ops with reason `spree_confirmation_required`. Other values are rejected as `unsupported_payload`.
+
+Events whose `event.reason` is `snooze` or `snooze_expired` are ignored. They represent a temporary Plunk pause, not a consent change in Spree.
 
 The current implementation prefers the default Plunk webhook payload and extracts the email from:
 
 - `contact.email`
 - or top-level `email`
 
-### How To Get The `Subscription Webhook Authorization Token`
+### How To Get The `Unsubscribe Webhook Authorization Token`
 
 This token is not issued by Plunk.
 
 It is a shared secret that you generate yourself and configure in both places:
 
-1. Store it in Spree Admin as `Subscription Webhook Authorization Token`.
+1. Store it in Spree Admin as `Unsubscribe Webhook Authorization Token`.
 2. Send the same value from the Plunk webhook step as:
 
 ```text
@@ -376,7 +395,7 @@ Authorization: Bearer your-secret-token
 
 Example:
 
-- Spree field `Subscription Webhook Authorization Token`:
+- Spree field `Unsubscribe Webhook Authorization Token`:
   - `12b61441e2177ef63ff91623a2c8da531c97bac8890172530f8c90a2ffb3012e`
 - Plunk webhook header:
   - Name: `Authorization`
@@ -396,25 +415,22 @@ or:
 ruby -rsecurerandom -e 'puts SecureRandom.hex(32)'
 ```
 
-### How To Configure The Webhook In Plunk
+### How To Configure The Unsubscribe Webhook In Plunk
 
-Plunk's own webhook guidance matches the shape this extension expects: use workflow triggers such as `contact.subscribed` and `contact.unsubscribed`, send a public HTTP request, and authenticate it with a shared-secret header.
+Configure a Plunk workflow for `contact.unsubscribed`, send a public HTTP request, and authenticate it with a shared-secret header. Do not send `contact.subscribed` callbacks as a way to verify a Spree newsletter subscriber.
 
 Recommended setup:
 
-1. Save the Spree integration first so you have the integration-specific webhook URL.
+1. Save the Spree integration and obtain its prefixed ID from the Admin API.
 2. In Plunk, create a workflow triggered by `contact.unsubscribed`.
 3. Add a `Webhook` step.
-4. Set the URL to your public Spree endpoint. Use the exact integration-specific path shown in Spree Admin after you save the integration. In current Spree, integrations use prefixed params that normally look like `int_<encoded-id>`, so the final URL will usually look like:
+4. Set the URL to your public Spree endpoint. In current Spree, integrations use prefixed params that normally look like `int_<encoded-id>`, so the final URL will usually look like:
 
    ```text
    https://your-spree-host.example.com/plunk/webhooks/unsubscribe/int_25Rf07xd9z
    ```
 
-   The `int_25Rf07xd9z` part is not something you invent manually. It is the saved integration's `to_param`, and you can usually copy it directly from:
-
-   - the webhook path shown in the Spree Admin form after saving the integration
-   - or the integration edit URL, which typically looks like `/admin/integrations/int_25Rf07xd9z/edit`
+   The `int_25Rf07xd9z` part is not something you invent manually. It is the integration's prefixed `id`. Get it from the Plunk integration record in the Admin API response to `GET /api/v3/admin/integrations`; the current dashboard does not display a custom webhook URL.
 
 5. Set the method to `POST`.
 6. Add this header:
@@ -432,7 +448,6 @@ Recommended setup:
 
 7. Leave the body empty so Plunk sends its default payload.
 8. Enable the workflow.
-9. Repeat the same setup for a second Plunk workflow triggered by `contact.subscribed` and send it to the same Spree endpoint.
 
 Notes:
 
@@ -440,21 +455,20 @@ Notes:
 - HTTPS is preferred.
 - Plunk webhook delivery is workflow-based, so no workflow means no webhook.
 - This extension is built to work with Plunk's default webhook payload shape.
-- If you choose a custom webhook body, it still needs to include explicit subscription-state semantics plus the contact email.
+- If you choose a custom webhook body, include the contact email, an explicit unsubscribe state, and `event.reason` when present. Replay protection needs a unique ID that your Plunk version can expose in a custom body; without one, identical payloads are processed because the endpoint cannot distinguish a retry from a later state change.
+- The default body includes the unique workflow execution ID and event data, so leaving the body empty is recommended.
 
-### Expected Local Result After A Successful Plunk Subscription Change
-
-If Plunk flips a contact to subscribed and the webhook is configured correctly:
-
-- the matching `Spree::NewsletterSubscriber` row is created or verified
-- the matching user's `accepts_email_marketing` becomes `true` when supported
-- repeating the same delivery should stay safe and idempotent
+### Expected Local Result After A Plunk Unsubscribe
 
 If Plunk flips a contact to unsubscribed and the webhook is configured correctly:
 
-- the matching `Spree::NewsletterSubscriber` row is deleted when present
-- the matching user's `accepts_email_marketing` becomes `false` when supported
+- only that integration store's `Spree::NewsletterSubscriber` row is deleted
+- the customer's global `accepts_email_marketing` is cleared only when no newsletter subscriptions remain in any store
 - repeating the same delivery should stay safe and idempotent
+
+Spree stores newsletter subscriptions per store but keeps `accepts_email_marketing` on the global customer record. When that global flag changes, `spree_plunk` also refreshes Plunk integrations for other stores that already have a newsletter subscription for the customer.
+
+When a customer changes their email address, `spree_plunk` resets their global marketing consent and removes their newsletter subscriber rows from every store. It syncs the current address as unsubscribed, but the current event path does not identify the old address, so cleanup of the old Plunk contact is not guaranteed. The new address stays unsubscribed until the customer opts in and completes newsletter confirmation again; changes limited to surrounding whitespace or ASCII letter case do not reset consent, while Unicode case-fold lookalikes are treated as different addresses. See [Newsletter Email Identity: Case And Whitespace](docs/transactional-email-inventory.md#newsletter-email-identity-case-and-whitespace) for the Spree normalization details.
 
 ## What This Extension Is For
 
