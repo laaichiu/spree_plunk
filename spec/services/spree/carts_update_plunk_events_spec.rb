@@ -10,10 +10,10 @@ RSpec.describe Spree::Carts::Update, events: true do
   end
 
   let(:store) { create(:store) }
-  let(:user) { create(:user, email: 'buyer@example.com') }
-  let(:order) { create(:order_with_line_items, user: user, store: store, email: nil, state: 'cart') }
-  let(:country) { Spree::Country.find_by(iso: 'US') || create(:country, iso: 'US') }
-  let!(:state) { country.states.find_by(abbr: 'NY') || create(:state, country: country, abbr: 'NY', name: 'New York') }
+  let(:customer) { create(:customer, email: 'buyer@example.com') }
+  let(:cart) { create(:cart_with_line_items, customer: customer, store: store, email: nil) }
+  let(:country) { Spree::Country.by_iso('US') || create(:country, iso: 'US') }
+  let!(:state) { country.states.find { |candidate| candidate.abbr == 'NY' } || create(:state, country: country, abbr: 'NY', name: 'New York') }
 
   it 'publishes checkout email entered and current step viewed when the checkout email becomes known' do
     received_events = []
@@ -22,18 +22,18 @@ RSpec.describe Spree::Carts::Update, events: true do
     Spree::Events.subscribe('checkout.step_viewed', async: false) { |event| received_events << event }
     Spree::Events.activate!
 
-    result = described_class.call(cart: order, params: { email: 'checkout@example.com' })
+    result = described_class.call(cart: cart, params: { email: 'checkout@example.com' })
 
     aggregate_failures do
       expect(result).to be_success
       expect(received_events.map(&:name)).to eq(%w[checkout.email_entered checkout.step_viewed])
       expect(received_events.first.payload).to include(
         'email' => 'checkout@example.com',
-        'order_id' => order.prefixed_id
+        'order_id' => cart.prefixed_id
       )
       expect(received_events.second.payload).to include(
-        'checkout_step' => order.reload.current_checkout_step,
-        'current_checkout_step' => order.current_checkout_step,
+        'checkout_step' => cart.reload.current_checkout_step,
+        'current_checkout_step' => cart.current_checkout_step,
         'email' => 'checkout@example.com'
       )
     end
@@ -47,7 +47,7 @@ RSpec.describe Spree::Carts::Update, events: true do
     Spree::Events.activate!
 
     result = described_class.call(
-      cart: order,
+      cart: cart,
       params: {
         email: 'checkout@example.com',
         shipping_address: {
@@ -56,8 +56,8 @@ RSpec.describe Spree::Carts::Update, events: true do
           address1: '123 Main St',
           city: 'New York',
           postal_code: '10001',
-          country_iso: 'US',
-          state_abbr: 'NY',
+          country_code: 'US',
+          state_code: 'NY',
           phone: '555-1234'
         },
         billing_address: {
@@ -66,8 +66,8 @@ RSpec.describe Spree::Carts::Update, events: true do
           address1: '123 Main St',
           city: 'New York',
           postal_code: '10001',
-          country_iso: 'US',
-          state_abbr: 'NY',
+          country_code: 'US',
+          state_code: 'NY',
           phone: '555-1234'
         }
       }
@@ -81,7 +81,7 @@ RSpec.describe Spree::Carts::Update, events: true do
       expect(completed_steps).to include('address')
       expect(viewed_event).to be_present
       expect(viewed_event.payload).to include(
-        'checkout_step' => order.reload.current_checkout_step,
+        'checkout_step' => cart.reload.current_checkout_step,
         'email' => 'checkout@example.com'
       )
     end

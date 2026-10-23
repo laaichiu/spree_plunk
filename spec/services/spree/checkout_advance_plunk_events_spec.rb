@@ -1,30 +1,20 @@
 require 'spec_helper'
 
-RSpec.describe Spree::Checkout::Advance, events: true do
-  before do
-    Spree::Events.reset!
-  end
+RSpec.describe Spree::Checkout::Advance do
+  it 'publishes checkout step events when recalculation changes the cart requirements' do
+    cart = instance_double(Spree::Cart, fulfillments: [], delivery_step_required?: false)
+    allow(cart).to receive(:current_checkout_step).and_return('address', 'delivery')
+    allow(cart).to receive(:can_propose_deliveries?).and_return(false)
+    allow(cart).to receive(:recalculate_totals!)
 
-  after do
-    Spree::Events.reset!
-  end
+    expect(SpreePlunk::StorefrontOrderEventPublisher).to receive(:publish_checkout_step_events).with(
+      order: cart,
+      previous_state: 'address',
+      current_state: 'delivery'
+    )
 
-  let(:order) { create(:order_ready_to_ship, state: :address, email: 'buyer@example.com') }
+    result = described_class.call(order: cart)
 
-  it 'publishes checkout step completed and viewed events when the checkout advance service changes state' do
-    received_events = []
-
-    Spree::Events.subscribe('checkout.step_completed', async: false) { |event| received_events << event }
-    Spree::Events.subscribe('checkout.step_viewed', async: false) { |event| received_events << event }
-    Spree::Events.activate!
-
-    result = described_class.call(order: order, state: 'delivery')
-
-    aggregate_failures do
-      expect(result).to be_success
-      expect(received_events.map(&:name)).to eq(%w[checkout.step_completed checkout.step_viewed])
-      expect(received_events.first.payload).to include('checkout_step' => 'address')
-      expect(received_events.second.payload).to include('checkout_step' => 'delivery')
-    end
+    expect(result).to be_success
   end
 end

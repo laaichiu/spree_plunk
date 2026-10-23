@@ -1,14 +1,14 @@
 module SpreePlunk
   class OrderSubscriber < Spree::Subscriber
-    subscribes_to 'order.completed', 'order.canceled', async: false
+    subscribes_to 'order.placed', 'order.canceled', async: false
 
-    on 'order.completed', :handle_order_completed
+    on 'order.placed', :handle_order_placed
     on 'order.canceled', :handle_order_canceled
 
     private
 
-    def handle_order_completed(event)
-      enqueue_order_event(event, SpreePlunk::EventNames::ORDER_COMPLETED)
+    def handle_order_placed(event)
+      enqueue_order_event(event, SpreePlunk::EventNames::ORDER_PLACED)
     end
 
     def handle_order_canceled(event)
@@ -19,7 +19,7 @@ module SpreePlunk
       order = ::Spree::Order.find_by_param(event.payload['id'])
       return unless order
 
-      integration = ::Spree::Integrations::Plunk.find_by(store_id: order.store_id)
+      integration = ::Spree::Integrations::Plunk.active.find_by(store_id: order.store_id)
       return unless integration
 
       SpreePlunk::TrackEventJob.perform_later(

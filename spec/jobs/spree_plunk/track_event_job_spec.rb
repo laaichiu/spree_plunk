@@ -11,28 +11,28 @@ RSpec.describe SpreePlunk::TrackEventJob, type: :job do
     clear_performed_jobs
   end
 
-  it 'reloads shipped shipments before delegating to event tracking' do
-    shipment = create(:shipped_order, store: store, email: 'buyer@example.com').shipments.first
+  it 'reloads fulfilled fulfillments before delegating to event tracking' do
+    fulfillment = create_fulfilled_order(store: store, email: 'buyer@example.com').fulfillments.first
 
     expect(SpreePlunk::TrackEvent).to receive(:call).with(
       plunk_integration: integration,
-      event_name: SpreePlunk::EventNames::SHIPMENT_SHIPPED,
-      resource: shipment,
-      email: shipment.order.email
+      event_name: SpreePlunk::EventNames::FULFILLMENT_FULFILLED,
+      resource: fulfillment,
+      email: fulfillment.owner.email
     ).and_return(Spree::ServiceModule::Result.new(true, { 'id' => 'evt_123' }))
 
     described_class.perform_now(
       integration.id,
-      SpreePlunk::EventNames::SHIPMENT_SHIPPED,
-      Spree::Shipment.name,
-      shipment.id,
-      shipment.order.email
+      SpreePlunk::EventNames::FULFILLMENT_FULFILLED,
+      Spree::Fulfillment.name,
+      fulfillment.id,
+      fulfillment.owner.email
     )
   end
 
   it 'reloads line items before delegating cart tracking' do
     order = create(:order, store: store, email: 'buyer@example.com')
-    product = create(:product, stores: [store])
+    product = create(:product, store: store)
     line_item = create(:line_item, order: order, product: product, quantity: 2, price: 19.99, currency: 'USD')
 
     expect(SpreePlunk::TrackEvent).to receive(:call).with(
@@ -51,22 +51,22 @@ RSpec.describe SpreePlunk::TrackEventJob, type: :job do
     )
   end
 
-  it 'reloads reimbursements before delegating to event tracking' do
-    reimbursement = create(:reimbursement)
+  it 'reloads returns before delegating to event tracking' do
+    return_record = create(:return)
 
     expect(SpreePlunk::TrackEvent).to receive(:call).with(
       plunk_integration: integration,
-      event_name: SpreePlunk::EventNames::REIMBURSEMENT_PAID,
-      resource: reimbursement,
-      email: reimbursement.order.email
+      event_name: SpreePlunk::EventNames::RETURN_REFUNDED,
+      resource: return_record,
+      email: return_record.order.email
     ).and_return(Spree::ServiceModule::Result.new(true, { 'id' => 'evt_123' }))
 
     described_class.perform_now(
       integration.id,
-      SpreePlunk::EventNames::REIMBURSEMENT_PAID,
-      Spree::Reimbursement.name,
-      reimbursement.id,
-      reimbursement.order.email
+      SpreePlunk::EventNames::RETURN_REFUNDED,
+      Spree::Return.name,
+      return_record.id,
+      return_record.order.email
     )
   end
 
@@ -106,7 +106,7 @@ RSpec.describe SpreePlunk::TrackEventJob, type: :job do
     expect {
       described_class.perform_now(
         integration.id,
-        SpreePlunk::EventNames::ORDER_COMPLETED,
+        SpreePlunk::EventNames::ORDER_PLACED,
         nil,
         nil,
         'buyer@example.com',
@@ -130,7 +130,7 @@ RSpec.describe SpreePlunk::TrackEventJob, type: :job do
     expect {
       described_class.perform_now(
         integration.id,
-        SpreePlunk::EventNames::ORDER_COMPLETED,
+        SpreePlunk::EventNames::ORDER_PLACED,
         Spree::Order.name,
         123,
         'buyer@example.com'
@@ -146,7 +146,7 @@ RSpec.describe SpreePlunk::TrackEventJob, type: :job do
           operation: 'track_event',
           integration_id: integration.id,
           store_id: integration.store_id,
-          event_name: SpreePlunk::EventNames::ORDER_COMPLETED,
+          event_name: SpreePlunk::EventNames::ORDER_PLACED,
           resource_type: Spree::Order.name,
           resource_id: 123,
           email_present: true,
@@ -173,7 +173,7 @@ RSpec.describe SpreePlunk::TrackEventJob, type: :job do
     perform_enqueued_jobs do
       described_class.perform_later(
         integration.id,
-        SpreePlunk::EventNames::ORDER_COMPLETED,
+        SpreePlunk::EventNames::ORDER_PLACED,
         nil,
         nil,
         'buyer@example.com',
@@ -190,7 +190,7 @@ RSpec.describe SpreePlunk::TrackEventJob, type: :job do
           operation: 'track_event',
           integration_id: integration.id,
           store_id: integration.store_id,
-          event_name: SpreePlunk::EventNames::ORDER_COMPLETED,
+          event_name: SpreePlunk::EventNames::ORDER_PLACED,
           email_present: true,
           resource_payload_present: true,
           status: 503,

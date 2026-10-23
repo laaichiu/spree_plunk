@@ -78,7 +78,7 @@ module SpreePlunk
     def publish_order_event(order:, event_name:, email: nil, extra_payload: {})
       return if order.blank?
 
-      resolved_email = normalize_email(email) || normalize_email(order.email) || normalize_email(order.user&.email)
+      resolved_email = normalize_email(email) || normalize_email(order.email) || normalize_email(customer_email(order))
       payload = base_payload(order: order, email: resolved_email).merge(compact_payload(extra_payload))
 
       ::Spree::Current.set(store: order.store) do
@@ -87,29 +87,39 @@ module SpreePlunk
     end
 
     def base_payload(order:, email:)
-      {
-        'user_id' => order.user_id,
+      is_cart = order.is_a?(::Spree::Cart)
+      status = order.status if order.is_a?(::Spree::Order)
+      checkout_step = order.current_checkout_step if is_cart
+      payment_status = order.payment_status if order.is_a?(::Spree::Order)
+      fulfillment_status = order.fulfillment_status if order.is_a?(::Spree::Order)
+      delivery_total = order.delivery_total
+      discount_total = order.discount_total
+      number = is_cart ? order.prefixed_id : order.number
+
+      payload = {
+        'customer_id' => order.customer_id || order.customer&.id,
         'store_id' => order.store_id,
         'store_code' => order.store&.code,
         'email' => email,
         'order_id' => order.prefixed_id,
-        'order_record_id' => order.id,
-        'order_number' => order.number,
-        'state' => order.state,
-        'checkout_step' => order.current_checkout_step,
-        'current_checkout_step' => order.current_checkout_step,
-        'payment_state' => order.payment_state,
-        'shipment_state' => order.shipment_state,
+        'order_number' => number,
+        'status' => status,
+        'checkout_step' => checkout_step,
+        'current_checkout_step' => checkout_step,
+        'payment_status' => payment_status,
+        'fulfillment_status' => fulfillment_status,
         'currency' => order.currency,
         'total' => order.total.to_f,
         'item_total' => order.item_total.to_f,
-        'shipment_total' => order.shipment_total.to_f,
+        'delivery_total' => delivery_total&.to_f,
         'tax_total' => order.tax_total.to_f,
-        'discount_total' => order.promo_total.to_f,
-        'item_count' => order.item_count,
+        'discount_total' => discount_total&.to_f,
+        'item_count' => order.total_quantity,
         'line_items_count' => order.line_items.size,
-        'coupon_code' => normalize_coupon_code(order.promo_code.presence || order.coupon_code)
+        'coupon_code' => normalize_coupon_code(order.coupon_code)
       }.compact
+      payload[is_cart ? 'cart_record_id' : 'order_record_id'] = order.id
+      payload
     end
 
     def compact_payload(payload)
@@ -124,11 +134,15 @@ module SpreePlunk
       value = state.to_s
       return if value.blank?
 
-      value == 'cart' ? 'address' : value
+      value
     end
 
     def checkout_step_index(order, step)
       order.checkout_steps.index(step)
+    end
+
+    def customer_email(order)
+      order.customer&.email
     end
 
     def gift_card_code?(order, coupon_code)

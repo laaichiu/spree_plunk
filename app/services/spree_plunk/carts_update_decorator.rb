@@ -1,7 +1,7 @@
 module SpreePlunk
   module CartsUpdateDecorator
     def call(cart:, params:)
-      previous_state = cart.state
+      previous_state = cart.current_checkout_step
       previous_email = normalize_email(cart.email)
       requested_email = extract_email(params)
       result = super
@@ -9,7 +9,7 @@ module SpreePlunk
       return result if result.failure?
 
       current_email = normalize_email(cart.email)
-      current_state = cart.state
+      current_state = cart.current_checkout_step
 
       if requested_email.present? && current_email == requested_email && current_email != previous_email
         SpreePlunk::StorefrontOrderEventPublisher.publish_checkout_email_entered(

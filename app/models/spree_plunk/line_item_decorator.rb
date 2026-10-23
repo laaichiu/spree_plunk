@@ -1,5 +1,17 @@
 module SpreePlunk
   module LineItemDecorator
+    def event_payload_for(event_name, **params)
+      payload = super.stringify_keys
+      @_current_event_name = event_name
+      cart_activity_event = cart_activity_event_name
+
+      payload.merge(snapshot_payload).tap do |merged_payload|
+        merged_payload['cart_activity_event'] = cart_activity_event if cart_activity_event.present?
+      end
+    ensure
+      @_current_event_name = nil
+    end
+
     def event_payload
       payload = super.stringify_keys
       cart_activity_event = cart_activity_event_name
@@ -34,26 +46,30 @@ module SpreePlunk
     end
 
     def snapshot_payload
-      {
-        'user_id' => order&.user_id,
-        'store_id' => order&.store_id,
-        'store_code' => order&.store&.code,
+      purchase = owner
+      is_cart = purchase.is_a?(::Spree::Cart)
+
+      payload = {
+        'customer_id' => purchase&.customer_id,
+        'store_id' => purchase&.store_id,
+        'store_code' => purchase&.store&.code,
         'email' => resolved_event_email,
         'line_item_id' => prefixed_id,
         'line_item_record_id' => id,
-        'order_id' => order&.prefixed_id,
-        'order_record_id' => order&.id,
-        'order_number' => order&.number,
+        'order_id' => purchase&.prefixed_id,
+        'order_number' => is_cart ? purchase&.prefixed_id : purchase&.number,
         'quantity' => quantity,
         'previous_quantity' => previous_quantity,
         'unit_price' => price.to_f,
         'line_item_total' => amount.to_f,
-        'currency' => order&.currency,
+        'currency' => purchase&.currency,
         'variant_id' => variant&.prefixed_id,
         'product_id' => product&.prefixed_id,
         'product_name' => name,
         'sku' => sku
-      }.compact
+      }
+      payload[is_cart ? 'cart_record_id' : 'order_record_id'] = purchase.id if purchase
+      payload.compact
     end
 
     def previous_quantity
@@ -65,7 +81,8 @@ module SpreePlunk
     end
 
     def resolved_event_email
-      order&.email.presence || order&.user&.email.presence
+      purchase = owner
+      purchase&.email.presence || purchase&.customer&.email.presence
     end
   end
 end

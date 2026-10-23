@@ -1,5 +1,15 @@
 module SpreePlunk
-  class AnalyticsEventHandler < ::Spree::BaseAnalyticsEventHandler
+  # Kept as a small adapter for storefront analytics callers. Spree 6 no longer
+  # has the global analytics_event_handlers registry, so this is not registered
+  # during Spree 6 boot; lifecycle events are handled by Spree::Subscriber.
+  class AnalyticsEventHandler
+    attr_reader :customer, :store
+
+    def initialize(options = {})
+      @customer = options[:customer]
+      @store = options[:store]
+    end
+
     def client
       @client ||= store&.integrations&.active&.find_by(type: Spree::Integrations::Plunk.name)
     end
@@ -33,7 +43,7 @@ module SpreePlunk
     end
 
     def email_for(properties)
-      property(properties, :email).presence || order_email(properties) || user&.email.presence
+      property(properties, :email).presence || order_email(properties) || customer&.email.presence
     end
 
     def order_email(properties)

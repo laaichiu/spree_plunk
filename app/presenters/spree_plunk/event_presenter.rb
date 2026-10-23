@@ -25,14 +25,20 @@ module SpreePlunk
 
     def event_data
       case resource
+      when ::Spree::Cart
+        StorefrontOrderEventPresenter.new(
+          payload: cart_payload,
+          store: store,
+          email: email
+        ).call
       when ::Spree::Order
         OrderPresenter.new(order: resource, store: store, email: email).call
       when ::Spree::LineItem
         LineItemPresenter.new(line_item: resource, store: store, email: email).call
-      when ::Spree::Shipment
-        ShipmentPresenter.new(shipment: resource, store: store).call
-      when ::Spree::Reimbursement
-        ReimbursementPresenter.new(reimbursement: resource, store: store).call
+      when ::Spree::Fulfillment
+        FulfillmentPresenter.new(fulfillment: resource, store: store).call
+      when ::Spree::Return
+        ReturnPresenter.new(return_record: resource, store: store).call
       when ::Spree::NewsletterSubscriber
         NewsletterSubscriberPresenter.new(subscriber: resource, store: store).call
       when Hash
@@ -57,6 +63,26 @@ module SpreePlunk
       else
         NewsletterSubscriberPresenter.new(subscriber: resource, store: store).call
       end
+    end
+
+    def cart_payload
+      checkout_step = resource.current_checkout_step
+      {
+        'order_id' => resource.prefixed_id,
+        'order_number' => resource.prefixed_id,
+        'store_code' => resource.store&.code,
+        'email' => email.presence || resource.email.presence || resource.customer&.email,
+        'checkout_step' => checkout_step,
+        'current_checkout_step' => checkout_step,
+        'currency' => resource.currency,
+        'total' => resource.total.to_f,
+        'item_total' => resource.item_total.to_f,
+        'delivery_total' => resource.delivery_total.to_f,
+        'discount_total' => resource.discount_total.to_f,
+        'item_count' => resource.total_quantity,
+        'line_items_count' => resource.line_items.size,
+        'coupon_code' => resource.coupon_code
+      }.compact
     end
   end
 end

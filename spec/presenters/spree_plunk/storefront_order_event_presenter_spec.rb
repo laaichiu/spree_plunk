@@ -9,16 +9,16 @@ RSpec.describe SpreePlunk::StorefrontOrderEventPresenter do
       'order_number' => 'R123456',
       'store_code' => 'default-store',
       'email' => 'buyer@example.com',
-      'state' => 'payment',
+      'status' => 'placed',
       'checkout_step' => 'payment',
       'previous_checkout_step' => 'delivery',
       'current_checkout_step' => 'payment',
-      'payment_state' => 'balance_due',
-      'shipment_state' => 'pending',
+      'payment_status' => 'partially_paid',
+      'fulfillment_status' => 'unfulfilled',
       'currency' => 'USD',
       'total' => 49.99,
       'item_total' => 39.99,
-      'shipment_total' => 10.0,
+      'delivery_total' => 10.0,
       'tax_total' => 2.5,
       'discount_total' => -5.0,
       'item_count' => 2,
@@ -35,16 +35,16 @@ RSpec.describe SpreePlunk::StorefrontOrderEventPresenter do
       order_number: 'R123456',
       store_code: 'default-store',
       email: 'buyer@example.com',
-      state: 'payment',
+      status: 'placed',
       checkout_step: 'payment',
       previous_checkout_step: 'delivery',
       current_checkout_step: 'payment',
-      payment_state: 'balance_due',
-      shipment_state: 'pending',
+      payment_status: 'partially_paid',
+      fulfillment_status: 'unfulfilled',
       currency: 'USD',
       total: 49.99,
       item_total: 39.99,
-      shipment_total: 10.0,
+      delivery_total: 10.0,
       tax_total: 2.5,
       discount_total: -5.0,
       item_count: 2,
@@ -52,5 +52,8 @@ RSpec.describe SpreePlunk::StorefrontOrderEventPresenter do
       coupon_code: 'save10',
       coupon_status_code: 'coupon_code_applied'
     )
+
+    expect(result).not_to have_key(:state)
+    expect(result).not_to have_key(:payment_state)
   end
 end

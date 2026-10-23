@@ -37,7 +37,7 @@ module SpreePlunk
       email = payload['email']
       return if email.blank?
 
-      integration = ::Spree::Integrations::Plunk.find_by(store_id: event.store_id || payload['store_id'])
+      integration = ::Spree::Integrations::Plunk.active.find_by(store_id: event.store_id || payload['store_id'])
       return unless integration
 
       SpreePlunk::TrackEventJob.perform_later(

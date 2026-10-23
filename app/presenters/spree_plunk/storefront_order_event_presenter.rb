@@ -7,21 +7,26 @@ module SpreePlunk
     end
 
     def call
+      payment_status = value('payment_status')
+      fulfillment_status = value('fulfillment_status')
+      delivery_total = numeric_value('delivery_total')
+      status = value('status')
+
       {
         order_id: value('order_id'),
         order_number: value('order_number'),
         store_code: value('store_code') || store&.code,
         email: resolved_email,
-        state: value('state'),
-        checkout_step: value('checkout_step') || value('current_checkout_step'),
+        status: status,
+        checkout_step: value('checkout_step'),
         previous_checkout_step: value('previous_checkout_step'),
         current_checkout_step: value('current_checkout_step'),
-        payment_state: value('payment_state'),
-        shipment_state: value('shipment_state'),
+        payment_status: payment_status,
+        fulfillment_status: fulfillment_status,
         currency: value('currency'),
         total: numeric_value('total'),
         item_total: numeric_value('item_total'),
-        shipment_total: numeric_value('shipment_total'),
+        delivery_total: delivery_total,
         tax_total: numeric_value('tax_total'),
         discount_total: numeric_value('discount_total'),
         item_count: value('item_count'),

@@ -37,7 +37,7 @@ module SpreePlunk
     def ensure_contact(plunk_integration:, event_name:, resource:, email:)
       SpreePlunk::UpsertContact.call(
         plunk_integration: plunk_integration,
-        user: resolve_user(resource),
+        customer: resolve_customer(resource),
         subscriber: resolve_subscriber(resource),
         address: resolve_address(resource),
         email: email,
@@ -45,20 +45,20 @@ module SpreePlunk
       )
     end
 
-    def resolve_user(resource)
+    def resolve_customer(resource)
       case resource
       when ::Spree::NewsletterSubscriber
-        resource.user
-      when ::Spree::Order
-        resource.user
+        resource.customer
+      when ::Spree::Order, ::Spree::Cart
+        resource.customer
       when ::Spree::LineItem
-        resource.order&.user
-      when ::Spree::Shipment
-        resource.order&.user
-      when ::Spree::Reimbursement
-        resource.order&.user
+        resource.owner&.customer
+      when ::Spree::Fulfillment
+        resource.owner&.customer
+      when ::Spree::Return
+        resource.order&.customer
       when Hash
-        resolve_snapshot_user(resource)
+        resolve_snapshot_customer(resource)
       end
     end
 
@@ -68,13 +68,15 @@ module SpreePlunk
 
     def resolve_address(resource)
       case resource
-      when ::Spree::Order
+      when ::Spree::Order, ::Spree::Cart
         resource.bill_address || resource.ship_address
       when ::Spree::LineItem
-        resource.order&.bill_address || resource.order&.ship_address
-      when ::Spree::Shipment
-        resource.address || resource.order&.bill_address || resource.order&.ship_address
-      when ::Spree::Reimbursement
+        purchase = resource.owner
+        purchase&.bill_address || purchase&.ship_address
+      when ::Spree::Fulfillment
+        purchase = resource.owner
+        resource.address || purchase&.bill_address || purchase&.ship_address
+      when ::Spree::Return
         resource.order&.bill_address || resource.order&.ship_address
       when Hash
         resolve_snapshot_order(resource)&.bill_address || resolve_snapshot_order(resource)&.ship_address
@@ -85,27 +87,31 @@ module SpreePlunk
       case resource
       when ::Spree::NewsletterSubscriber
         resource.email
-      when ::Spree::Order
+      when ::Spree::Order, ::Spree::Cart
         resource.email
       when ::Spree::LineItem
-        resource.order&.email.presence || resource.order&.user&.email
-      when ::Spree::Shipment
-        resource.order&.email
-      when ::Spree::Reimbursement
+        purchase = resource.owner
+        purchase&.email.presence || purchase&.customer&.email
+      when ::Spree::Fulfillment
+        resource.owner&.email
+      when ::Spree::Return
         resource.order&.email
       when Hash
         resource['email']
       end
     end
 
-    def resolve_snapshot_user(resource)
-      user_id = resource['user_id'] || resource[:user_id]
-      return if user_id.blank?
+    def resolve_snapshot_customer(resource)
+      customer_id = resource['customer_id'] || resource[:customer_id]
+      return if customer_id.blank?
 
-      ::Spree.user_class.find_by(id: user_id)
+      ::Spree.customer_class.find_by(id: customer_id)
     end
 
     def resolve_snapshot_order(resource)
+      cart_id = resource['cart_record_id'] || resource[:cart_record_id]
+      return ::Spree::Cart.find_by(id: cart_id) if cart_id.present?
+
       order_id = resource['order_record_id'] || resource[:order_record_id]
       return if order_id.blank?
 

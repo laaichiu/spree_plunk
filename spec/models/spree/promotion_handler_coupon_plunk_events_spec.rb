@@ -10,25 +10,25 @@ RSpec.describe Spree::PromotionHandler::Coupon, events: true do
   end
 
   let(:store) { create(:store) }
-  let(:user) { create(:user, email: 'buyer@example.com') }
-  let(:order) { create(:order_with_line_items, store: store, user: user, email: user.email) }
+  let(:customer) { create(:customer, email: 'buyer@example.com') }
+  let(:cart) { create(:cart_with_line_items, store: store, customer: customer, email: customer.email) }
 
   it 'publishes coupon entered and applied events for a successful coupon apply' do
-    create(:promotion_with_item_adjustment, code: 'SAVE10', stores: [store])
+    create(:promotion_with_item_adjustment, code: 'SAVE10', store: store)
     received_events = []
 
     Spree::Events.subscribe('coupon.entered', async: false) { |event| received_events << event }
     Spree::Events.subscribe('coupon.applied', async: false) { |event| received_events << event }
     Spree::Events.activate!
 
-    order.coupon_code = 'SAVE10'
-    described_class.new(order, enable_gift_cards: false).apply
+    cart.coupon_code = 'SAVE10'
+    described_class.new(cart, enable_gift_cards: false).apply
 
     aggregate_failures do
       expect(received_events.map(&:name)).to eq(%w[coupon.entered coupon.applied])
       expect(received_events.first.payload).to include(
         'email' => 'buyer@example.com',
-        'order_id' => order.prefixed_id,
+        'order_id' => cart.prefixed_id,
         'coupon_code' => 'save10'
       )
       expect(received_events.second.payload).to include(
@@ -45,8 +45,8 @@ RSpec.describe Spree::PromotionHandler::Coupon, events: true do
     Spree::Events.subscribe('coupon.denied', async: false) { |event| received_events << event }
     Spree::Events.activate!
 
-    order.coupon_code = 'INVALID'
-    described_class.new(order, enable_gift_cards: false).apply
+    cart.coupon_code = 'INVALID'
+    described_class.new(cart, enable_gift_cards: false).apply
 
     aggregate_failures do
       expect(received_events.map(&:name)).to eq(%w[coupon.entered coupon.denied])
@@ -58,16 +58,16 @@ RSpec.describe Spree::PromotionHandler::Coupon, events: true do
   end
 
   it 'publishes a coupon removed event for a successful coupon removal' do
-    create(:promotion_with_item_adjustment, code: 'REMOVE10', stores: [store])
+    create(:promotion_with_item_adjustment, code: 'REMOVE10', store: store)
     received_event = nil
 
-    order.coupon_code = 'REMOVE10'
-    described_class.new(order, enable_gift_cards: false).apply
+    cart.coupon_code = 'REMOVE10'
+    described_class.new(cart, enable_gift_cards: false).apply
 
     Spree::Events.subscribe('coupon.removed', async: false) { |event| received_event = event }
     Spree::Events.activate!
 
-    described_class.new(order, enable_gift_cards: false).remove('REMOVE10')
+    described_class.new(cart, enable_gift_cards: false).remove('REMOVE10')
 
     expect(received_event.payload).to include(
       'email' => 'buyer@example.com',
