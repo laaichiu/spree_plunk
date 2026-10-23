@@ -12,6 +12,10 @@ module SpreePlunk
 
     private
 
+    def find_active_plunk_integration(id)
+      ::Spree::Integrations::Plunk.active.find_by(id: id)
+    end
+
     def ensure_sync_success!(result, operation:, **context)
       return result unless result&.failure?
 

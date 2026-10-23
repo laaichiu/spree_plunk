@@ -1,7 +1,7 @@
 module SpreePlunk
   class UpsertContactJob < BaseJob
-    def perform(plunk_integration_id, resource_type, resource_id, address_id = nil)
-      plunk_integration = ::Spree::Integrations::Plunk.find_by(id: plunk_integration_id)
+    def perform(plunk_integration_id, resource_type, resource_id, address_id = nil, subscribed = nil)
+      plunk_integration = find_active_plunk_integration(plunk_integration_id)
       return unless plunk_integration
 
       result =
@@ -12,18 +12,20 @@ module SpreePlunk
 
           SpreePlunk::UpsertContact.call(
             plunk_integration: plunk_integration,
-            subscriber: subscriber
+            subscriber: subscriber,
+            subscribed: subscribed
           )
-        when ::Spree.user_class.name
-          user = ::Spree.user_class.find_by(id: resource_id)
-          return unless user
+        when ::Spree.customer_class.name
+          customer = ::Spree.customer_class.find_by(id: resource_id)
+          return unless customer
 
           address = ::Spree::Address.find_by(id: address_id) if address_id.present?
 
           SpreePlunk::UpsertContact.call(
             plunk_integration: plunk_integration,
-            user: user,
-            address: address
+            customer: customer,
+            address: address,
+            subscribed: subscribed
           )
         end
 

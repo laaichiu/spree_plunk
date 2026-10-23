@@ -6,7 +6,7 @@ RSpec.describe SpreePlunk::ContactSubscriber do
   let(:store) { create(:store) }
   let(:integration) { create(:plunk_integration, store: store) }
   let(:subscriber) { described_class.new }
-  let(:user) { create(:user_with_addresses, email: 'buyer@example.com') }
+  let(:customer) { create(:customer_with_addresses, email: 'buyer@example.com') }
 
   before do
     integration
@@ -18,47 +18,134 @@ RSpec.describe SpreePlunk::ContactSubscriber do
     expect(described_class.subscription_options).to eq(async: false)
   end
 
-  it 'enqueues contact upsert for user lifecycle events' do
+  it 'enqueues contact upsert for customer creation' do
     event = Spree::Event.new(
-      name: 'user.updated',
-      payload: { 'id' => user.to_param }
+      name: 'user.created',
+      store_id: store.id,
+      payload: { 'id' => customer.to_param }
     )
 
     expect {
-      subscriber.send(:handle_user_event, event)
+      subscriber.send(:handle_customer_event, event)
     }.to have_enqueued_job(SpreePlunk::UpsertContactJob).with(
       integration.id,
-      Spree.user_class.name,
-      user.id
+      Spree.customer_class.name,
+      customer.id
     )
   end
 
-  it 'enqueues contact upsert for address lifecycle events' do
-    address = user.bill_address || user.ship_address
+  it 'enqueues contact upsert for the private customer-address change event' do
     event = Spree::Event.new(
-      name: 'address.updated',
-      payload: { 'id' => address.to_param }
+      name: 'spree_plunk.customer_address_changed',
+      store_id: store.id,
+      payload: { 'customer_id' => customer.to_param }
     )
 
     expect {
-      subscriber.send(:handle_address_event, event)
+      subscriber.send(:handle_customer_address_changed, event)
     }.to have_enqueued_job(SpreePlunk::UpsertContactJob).with(
       integration.id,
-      Spree.user_class.name,
-      user.id,
-      address.id
+      Spree.customer_class.name,
+      customer.id
     )
   end
 
-  it 'skips address events that are not attached to a user' do
-    orphan_address = create(:address, user: nil)
+  it 'removes every store newsletter subscription when the customer email changes' do
+    other_store = create(:store)
+    other_integration = create(:plunk_integration, store: other_store)
+    other_subscriber = create(
+      :newsletter_subscriber,
+      :verified,
+      email: customer.email,
+      customer: customer,
+      store: other_store
+    )
+    local_subscriber = create(
+      :newsletter_subscriber,
+      :verified,
+      email: customer.email,
+      customer: customer,
+      store: store
+    )
     event = Spree::Event.new(
-      name: 'address.updated',
-      payload: { 'id' => orphan_address.to_param }
+      name: SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT,
+      store_id: store.id,
+      payload: { 'customer_id' => customer.to_param, 'store_id' => store.to_param }
+    )
+
+    Spree::Events.reset!
+    Spree::Events.activate!
+
+    expect {
+      subscriber.send(:handle_customer_email_changed, event)
+    }.to change { Spree::NewsletterSubscriber.where(customer_id: customer.id).count }.from(2).to(0)
+
+    aggregate_failures do
+      expect(Spree::NewsletterSubscriber.exists?(local_subscriber.id)).to be(false)
+      expect(Spree::NewsletterSubscriber.exists?(other_subscriber.id)).to be(false)
+      expect(Spree::Events.catalog.find(SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT).webhook?).to be(false)
+      expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UnsubscribeJob }.map { |job| job[:args] }).to contain_exactly(
+        [integration.id, customer.email],
+        [other_integration.id, customer.email]
+      )
+      expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UpsertContactJob }.map { |job| job[:args] }).to contain_exactly(
+        [integration.id, Spree.customer_class.name, customer.id, nil, false],
+        [other_integration.id, Spree.customer_class.name, customer.id, nil, false]
+      )
+    end
+  ensure
+    Spree::Events.reset!
+  end
+
+  it 'uses the store carried by the private address event payload' do
+    other_store = create(:store)
+    other_integration = create(:plunk_integration, store: other_store)
+    event = Spree::Event.new(
+      name: 'spree_plunk.customer_address_changed',
+      store_id: store.id,
+      payload: { 'customer_id' => customer.to_param, 'store_id' => other_store.to_param }
     )
 
     expect {
-      subscriber.send(:handle_address_event, event)
+      subscriber.send(:handle_customer_address_changed, event)
+    }.to have_enqueued_job(SpreePlunk::UpsertContactJob).with(
+      other_integration.id,
+      Spree.customer_class.name,
+      customer.id
+    )
+  end
+
+  it 'syncs global marketing consent changes to every store with a newsletter subscription' do
+    other_store = create(:store)
+    other_integration = create(:plunk_integration, store: other_store)
+    create(:newsletter_subscriber, :verified, email: customer.email, customer: customer, store: other_store)
+    event = Spree::Event.new(
+      name: SpreePlunk::CustomerDecorator::MARKETING_CONSENT_CHANGED_EVENT,
+      store_id: store.id,
+      payload: {
+        'customer_id' => customer.to_param,
+        'accepts_email_marketing' => false,
+        'email_changed' => false
+      }
+    )
+
+    expect {
+      subscriber.send(:handle_customer_marketing_consent_changed, event)
+    }.to have_enqueued_job(SpreePlunk::UpsertContactJob).with(
+      other_integration.id,
+      Spree.customer_class.name,
+      customer.id,
+      nil,
+      false
+    )
+  end
+
+  it 'does not enqueue when the Plunk integration is inactive' do
+    integration.update!(active: false)
+    event = Spree::Event.new(name: 'user.created', store_id: store.id, payload: { 'id' => customer.to_param })
+
+    expect {
+      subscriber.send(:handle_customer_event, event)
     }.not_to have_enqueued_job(SpreePlunk::UpsertContactJob)
   end
 end

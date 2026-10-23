@@ -3,7 +3,7 @@ require 'spec_helper'
 RSpec.describe SpreePlunk::ContactPresenter do
   subject(:payload) do
     described_class.new(
-      user: user,
+      customer: user,
       subscriber: subscriber,
       store: store
     ).call(subscribed: subscribed)
@@ -14,7 +14,7 @@ RSpec.describe SpreePlunk::ContactPresenter do
   let(:subscriber) { nil }
   let(:user) do
     create(
-      :user_with_addresses,
+      :customer_with_addresses,
       email: 'ada@example.com',
       first_name: 'Ada',
       last_name: 'Lovelace',
@@ -50,7 +50,14 @@ RSpec.describe SpreePlunk::ContactPresenter do
   end
 
   context 'with a newsletter subscriber' do
-    let(:subscriber) { create(:newsletter_subscriber, :verified, user: user, email: 'ada@example.com') }
+    let(:subscriber) do
+      instance_double(
+        Spree::NewsletterSubscriber,
+        customer: user,
+        email: 'ada@example.com',
+        accepts_email_marketing: true
+      )
+    end
     let(:subscribed) { true }
 
     it 'prefers subscriber-backed marketing state' do
