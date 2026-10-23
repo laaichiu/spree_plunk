@@ -3,9 +3,24 @@ require 'spec_helper'
 RSpec.describe Spree::Integrations::Plunk, type: :model do
   let(:store) { Spree::Store.default }
 
-  describe '.icon_path' do
-    it 'exposes an integration card icon for the admin list' do
-      expect(described_class.icon_path).to start_with('data:image/png;base64,')
+  describe '.logo_url' do
+    it 'exposes the logo field used by the Spree 6 integrations dashboard' do
+      expect(described_class.logo_url).to start_with('data:image/png;base64,')
+    end
+  end
+
+  describe 'integration type discovery' do
+    it 'publishes its preference schema through the Admin API registry' do
+      entry = Spree::Integration.discovery_entries.find { |integration| integration[:type] == 'plunk' }
+
+      expect(entry).to include(
+        type: 'plunk',
+        name: 'Plunk',
+        logo_url: described_class.logo_url
+      )
+      expect(entry[:schema]).to include('type' => 'object')
+      expect(entry[:schema].dig('properties', 'plunk_secret_api_key', 'type')).to include('string')
+      expect(entry[:schema].dig('properties', 'unsubscribe_webhook_authorization_token', 'type')).to include('string')
     end
   end
 
@@ -14,6 +29,7 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
       integration = build(
         :plunk_integration,
         store: store,
+        active: false,
         preferred_plunk_base_url: ' https://plunk.example.com/api/ ',
         preferred_plunk_secret_api_key: " sk_test_123 \n",
         preferred_plunk_public_api_key: ' pk_test_123 ',
@@ -24,10 +40,9 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
         preferred_newsletter_confirmation_template_id: ' tpl_newsletter ',
         preferred_order_confirmation_template_id: ' tpl_order ',
         preferred_order_cancellation_template_id: ' tpl_cancel ',
-        preferred_shipment_shipped_template_id: ' tpl_shipment ',
-        preferred_reimbursement_template_id: ' tpl_reimbursement ',
-        preferred_store_owner_notification_template_id: ' tpl_owner ',
-        preferred_payment_link_template_id: ' tpl_payment '
+        preferred_fulfillment_fulfilled_template_id: ' tpl_fulfillment ',
+        preferred_return_refunded_template_id: ' tpl_return ',
+        preferred_store_owner_notification_template_id: ' tpl_owner '
       )
 
       integration.valid?
@@ -43,10 +58,9 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
         expect(integration.preferred_newsletter_confirmation_template_id).to eq('tpl_newsletter')
         expect(integration.preferred_order_confirmation_template_id).to eq('tpl_order')
         expect(integration.preferred_order_cancellation_template_id).to eq('tpl_cancel')
-        expect(integration.preferred_shipment_shipped_template_id).to eq('tpl_shipment')
-        expect(integration.preferred_reimbursement_template_id).to eq('tpl_reimbursement')
+        expect(integration.preferred_fulfillment_fulfilled_template_id).to eq('tpl_fulfillment')
+        expect(integration.preferred_return_refunded_template_id).to eq('tpl_return')
         expect(integration.preferred_store_owner_notification_template_id).to eq('tpl_owner')
-        expect(integration.preferred_payment_link_template_id).to eq('tpl_payment')
       end
     end
 
@@ -160,9 +174,28 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
     end
   end
 
+  describe 'API methods while inactive' do
+    it 'skips contact, subscription, tracking, and transactional requests without constructing a client' do
+      integration = build(:plunk_integration, store: store, active: false)
+      expect(SpreePlunk::Plunk::Client).not_to receive(:new)
+
+      results = [
+        integration.lookup_contact(email: 'buyer@example.com'),
+        integration.upsert_contact(email: 'buyer@example.com'),
+        integration.subscribe_contact(email: 'buyer@example.com'),
+        integration.unsubscribe_contact(email: 'buyer@example.com'),
+        integration.track_event(name: 'order.placed'),
+        integration.send_transactional_email({ to: 'buyer@example.com', subject: 'Order', body: '<p>Order</p>' })
+      ]
+
+      expect(results).to all(be_success)
+      expect(results.map(&:value)).to all(include(skipped: true, reason: 'integration_inactive'))
+    end
+  end
+
   describe '#track_event' do
     let(:integration) { build(:plunk_integration, store: store) }
-    let(:payload) { { name: SpreePlunk::EventNames::ORDER_COMPLETED, contactId: 'cnt_123' } }
+    let(:payload) { { name: SpreePlunk::EventNames::ORDER_PLACED, contactId: 'cnt_123' } }
 
     it 'marks 5xx API failures as retryable' do
       stub_request(:post, 'https://next-api.useplunk.com/events/track')
@@ -220,6 +253,56 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
         expect(result).to be_success
         expect(result.value).to include('id' => 'email_123')
       end
+    end
+
+    it 'sends a stable idempotency key when the job provides one' do
+      stub_request(:post, 'https://next-api.useplunk.com/v1/send')
+        .with(headers: { 'Idempotency-Key' => 'active-job-123' })
+        .to_return(status: 200, body: '{"id":"email_123"}')
+
+      result = integration.send_transactional_email(payload, idempotency_key: 'active-job-123')
+
+      expect(result).to be_success
+      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send')
+        .with(headers: { 'Idempotency-Key' => 'active-job-123' })).to have_been_made.once
+    end
+
+    it 'turns Plunk idempotency conflicts into non-retryable failures' do
+      stub_request(:post, 'https://next-api.useplunk.com/v1/send')
+        .to_return(
+          status: 409,
+          body: '{"message":"Idempotency-Key has already been used","details":{"originalStatusCode":500}}',
+          headers: { 'Content-Type' => 'application/json' }
+        )
+
+      result = integration.send_transactional_email(payload, idempotency_key: 'active-job-123')
+
+      expect(result).to be_failure
+      expect(result.value).to include(
+        status: 409,
+        error_code: 'idempotency_conflict',
+        retryable: false
+      )
+      expect(result.value[:error_message]).to include('original request returned HTTP 500')
+    end
+
+    it 'uses the same key on an ambiguous retry and does not permit a duplicate send' do
+      stub_request(:post, 'https://next-api.useplunk.com/v1/send')
+        .with(headers: { 'Idempotency-Key' => 'active-job-123' })
+        .to_return(
+          { status: 500, body: '{"message":"unknown delivery state"}' },
+          { status: 409, body: '{"details":{"originalStatusCode":500}}' }
+        )
+
+      first_attempt = integration.send_transactional_email(payload, idempotency_key: 'active-job-123')
+      retry_attempt = integration.send_transactional_email(payload, idempotency_key: 'active-job-123')
+
+      expect(first_attempt).to be_failure
+      expect(first_attempt.value).to include(retryable: true)
+      expect(retry_attempt).to be_failure
+      expect(retry_attempt.value).to include(error_code: 'idempotency_conflict', retryable: false)
+      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send')
+        .with(headers: { 'Idempotency-Key' => 'active-job-123' })).to have_been_made.twice
     end
 
     it 'extracts Plunk API messages from domain verification failures' do

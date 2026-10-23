@@ -17,16 +17,14 @@ en:
         preferred_order_confirmation_template_id: Order Confirmation Template ID
         preferred_order_cancellation_email_enabled: Send Order Cancellation Emails
         preferred_order_cancellation_template_id: Order Cancellation Template ID
-        preferred_shipment_shipped_email_enabled: Send Shipment Shipped Emails
-        preferred_shipment_shipped_template_id: Shipment Shipped Template ID
-        preferred_reimbursement_email_enabled: Send Reimbursement Emails
-        preferred_reimbursement_template_id: Reimbursement Template ID
+        preferred_fulfillment_fulfilled_email_enabled: Send Fulfillment Emails
+        preferred_fulfillment_fulfilled_template_id: Fulfillment Template ID
+        preferred_return_refunded_email_enabled: Send Return Refund Emails
+        preferred_return_refunded_template_id: Return Refund Template ID
         preferred_store_owner_notification_email_enabled: Send Store Owner Notifications
         preferred_store_owner_notification_template_id: Store Owner Notification Template ID
-        preferred_payment_link_email_enabled: Send Payment Link Emails
-        preferred_payment_link_template_id: Payment Link Template ID
-        preferred_unsubscribe_webhook_enabled: Enable Subscription Webhook
-        preferred_unsubscribe_webhook_authorization_token: Subscription Webhook Authorization Token
+        preferred_unsubscribe_webhook_enabled: Enable Unsubscribe Webhook
+        preferred_unsubscribe_webhook_authorization_token: Unsubscribe Webhook Authorization Token
     errors:
       models:
         spree/integrations/plunk:
@@ -66,13 +64,11 @@ en:
           order_confirmation_template_id: Order Confirmation Template ID
           order_cancellation_email_enabled: Send Order Cancellation Emails
           order_cancellation_template_id: Order Cancellation Template ID
-          shipment_shipped_email_enabled: Send Shipment Shipped Emails
-          shipment_shipped_template_id: Shipment Shipped Template ID
-          reimbursement_email_enabled: Send Reimbursement Emails
-          reimbursement_template_id: Reimbursement Template ID
+          fulfillment_fulfilled_email_enabled: Send Fulfillment Emails
+          fulfillment_fulfilled_template_id: Fulfillment Template ID
+          return_refunded_email_enabled: Send Return Refund Emails
+          return_refunded_template_id: Return Refund Template ID
           store_owner_notification_email_enabled: Send Store Owner Notifications
           store_owner_notification_template_id: Store Owner Notification Template ID
-          payment_link_email_enabled: Send Payment Link Emails
-          payment_link_template_id: Payment Link Template ID
-          unsubscribe_webhook_enabled: Enable Subscription Webhook
-          unsubscribe_webhook_authorization_token: Subscription Webhook Authorization Token
+          unsubscribe_webhook_enabled: Enable Unsubscribe Webhook
+          unsubscribe_webhook_authorization_token: Unsubscribe Webhook Authorization Token

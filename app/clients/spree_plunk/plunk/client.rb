@@ -18,8 +18,8 @@ module SpreePlunk
         request(Net::HTTP::Get, path)
       end
 
-      def post(path, body)
-        request(Net::HTTP::Post, path, body)
+      def post(path, body, headers: {})
+        request(Net::HTTP::Post, path, body, headers: headers)
       end
 
       def patch(path, body)
@@ -30,12 +30,13 @@ module SpreePlunk
 
       attr_reader :base_url, :secret_api_key, :open_timeout, :read_timeout
 
-      def request(klass, path, body = nil)
+      def request(klass, path, body = nil, headers: {})
         uri = build_uri(path)
         http_request = klass.new(uri)
         http_request['Accept'] = 'application/json'
         http_request['Authorization'] = "Bearer #{secret_api_key}"
         http_request['Content-Type'] = 'application/json'
+        headers.each { |name, value| http_request[name] = value }
         http_request.body = JSON.generate(body) if body
 
         response = http(uri).request(http_request)

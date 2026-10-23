@@ -29,14 +29,12 @@ module Spree
       preference :order_confirmation_template_id, :string
       preference :order_cancellation_email_enabled, :boolean, default: false
       preference :order_cancellation_template_id, :string
-      preference :shipment_shipped_email_enabled, :boolean, default: false
-      preference :shipment_shipped_template_id, :string
-      preference :reimbursement_email_enabled, :boolean, default: false
-      preference :reimbursement_template_id, :string
+      preference :fulfillment_fulfilled_email_enabled, :boolean, default: false
+      preference :fulfillment_fulfilled_template_id, :string
+      preference :return_refunded_email_enabled, :boolean, default: false
+      preference :return_refunded_template_id, :string
       preference :store_owner_notification_email_enabled, :boolean, default: false
       preference :store_owner_notification_template_id, :string
-      preference :payment_link_email_enabled, :boolean, default: false
-      preference :payment_link_template_id, :string
       preference :unsubscribe_webhook_enabled, :boolean, default: false
       preference :unsubscribe_webhook_authorization_token, :password
 
@@ -54,10 +52,9 @@ module Spree
       validates :preferred_newsletter_confirmation_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
       validates :preferred_order_confirmation_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
       validates :preferred_order_cancellation_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
-      validates :preferred_shipment_shipped_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
-      validates :preferred_reimbursement_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
+      validates :preferred_fulfillment_fulfilled_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
+      validates :preferred_return_refunded_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
       validates :preferred_store_owner_notification_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
-      validates :preferred_payment_link_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
 
       validate :validate_plunk_base_url
       validate :validate_api_keys
@@ -68,15 +65,19 @@ module Spree
         'marketing'
       end
 
-      def self.icon_path
+      def self.logo_url
         return unless PLUNK_LOGO_PATH.exist?
 
-        @icon_path ||= "data:image/png;base64,#{Base64.strict_encode64(PLUNK_LOGO_PATH.binread)}"
+        @logo_url ||= "data:image/png;base64,#{Base64.strict_encode64(PLUNK_LOGO_PATH.binread)}"
       end
 
       def can_connect?
         self.connection_error_message = nil
 
+        # Spree validates an activation by calling #can_connect?. Validating
+        # the Plunk credentials here must not trigger that activation check
+        # again when the record is changing from inactive to active.
+        @checking_connection = true
         unless valid?
           self.connection_error_message = invalid_configuration_message
           return false
@@ -86,29 +87,75 @@ module Spree
         self.connection_error_message = connection_error_message_for(result) if result.failure?
 
         result.success?
+      ensure
+        @checking_connection = false
       end
 
       def upsert_contact(payload)
+        return inactive_result unless active?
+
         handle_result(client.post('contacts', payload))
       end
 
+      def lookup_contact(email:)
+        return inactive_result unless active?
+
+        handle_result(client.post('contacts/lookup', { emails: [email] }))
+      end
+
       def subscribe_contact(payload)
+        return inactive_result unless active?
+
         handle_result(client.post('contacts', payload.merge(subscribed: true)))
       end
 
       def unsubscribe_contact(payload)
+        return inactive_result unless active?
+
         handle_result(client.post('contacts', payload.merge(subscribed: false)))
       end
 
       def track_event(payload)
+        return inactive_result unless active?
+
         handle_result(client.post('events/track', payload))
       end
 
-      def send_transactional_email(payload)
-        handle_result(client.post('v1/send', payload))
+      def send_transactional_email(payload, idempotency_key: nil)
+        return inactive_result unless active?
+
+        headers = { 'Idempotency-Key' => idempotency_key } if idempotency_key.present?
+        result = client.post('v1/send', payload, headers: headers || {})
+
+        if result.failure? && result.value[:status].to_i == 409 && idempotency_key.present?
+          body = result.value[:body]
+          original_status = body.dig('details', 'originalStatusCode') if body.is_a?(Hash)
+          message = 'Plunk rejected this retry because the idempotency key was already used.'
+          message += " The original request returned HTTP #{original_status}; check Plunk delivery logs before resending." if original_status.present?
+
+          return Spree::ServiceModule::Result.new(false, {
+            status: 409,
+            error_message: message,
+            error_code: 'idempotency_conflict',
+            retryable: false,
+            response_body: body
+          })
+        end
+
+        handle_result(result)
       end
 
       private
+
+      def must_connect_when_activating
+        return if @checking_connection
+
+        super
+      end
+
+      def inactive_result
+        Spree::ServiceModule::Result.new(true, { skipped: true, reason: 'integration_inactive' })
+      end
 
       def client
         ::SpreePlunk::Plunk::Client.new(
@@ -128,10 +175,9 @@ module Spree
         self.preferred_newsletter_confirmation_template_id = normalize_string(preferred_newsletter_confirmation_template_id)
         self.preferred_order_confirmation_template_id = normalize_string(preferred_order_confirmation_template_id)
         self.preferred_order_cancellation_template_id = normalize_string(preferred_order_cancellation_template_id)
-        self.preferred_shipment_shipped_template_id = normalize_string(preferred_shipment_shipped_template_id)
-        self.preferred_reimbursement_template_id = normalize_string(preferred_reimbursement_template_id)
+        self.preferred_fulfillment_fulfilled_template_id = normalize_string(preferred_fulfillment_fulfilled_template_id)
+        self.preferred_return_refunded_template_id = normalize_string(preferred_return_refunded_template_id)
         self.preferred_store_owner_notification_template_id = normalize_string(preferred_store_owner_notification_template_id)
-        self.preferred_payment_link_template_id = normalize_string(preferred_payment_link_template_id)
       end
 
       def normalize_string(value)
