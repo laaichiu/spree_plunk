@@ -1,0 +1,11 @@
+---
+subject: "Confirm your {{ store.name }} newsletter subscription"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Confirm your subscription</mj-text>
+    <mj-text mj-class="lead">Please confirm that you want to receive emails from {{ store.name }}. You will not be subscribed until you confirm.</mj-text>
+    <mj-button href="{{ confirmation_url }}">Confirm email address</mj-button>
+    <mj-text mj-class="note">If the button does not work, copy this link into your browser:<br /><a href="{{ confirmation_url }}">{{ confirmation_url }}</a></mj-text>
+  </mj-column>
+</mj-section>

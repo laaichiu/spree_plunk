@@ -41,7 +41,7 @@ module SpreePlunk
       end
 
       def extension_migrations_path
-        File.expand_path('../../../../../db/migrate', __dir__)
+        File.expand_path('../../../../db/migrate', __dir__)
       end
     end
   end

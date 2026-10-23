@@ -3,7 +3,7 @@ module SpreePlunk
     private
 
     def resolved_email
-      email.presence || resource&.email.presence || resource&.user&.email
+      email.presence || resource&.email.presence || resource&.customer&.email
     end
 
     def order_number
@@ -24,23 +24,23 @@ module SpreePlunk
         customer_last_name: customer_last_name,
         order_id: resource.prefixed_id,
         order_number: resource.number,
-        order_state: resource.state,
-        payment_state: resource.payment_state,
-        shipment_state: resource.shipment_state,
+        status: order_status,
+        payment_status: resource.payment_status,
+        fulfillment_status: resource.fulfillment_status,
         order_total: display_total,
         order_total_amount: numeric_value { resource.total },
         currency: resource.currency,
         item_total: resource.item_total&.to_f,
         item_total_display: display_money(resource.item_total),
-        shipment_total: resource.shipment_total&.to_f,
-        shipment_total_display: display_money(resource.shipment_total),
+        delivery_total: resource.delivery_total&.to_f,
+        delivery_total_display: display_money(resource.delivery_total),
         tax_total: resource.tax_total&.to_f,
         tax_total_display: display_money(resource.tax_total),
-        discount_total: resource.promo_total&.to_f,
-        discount_total_display: display_money(resource.promo_total),
-        gift_card_total: numeric_value { resource.gift_card_total if resource.respond_to?(:gift_card_total) },
-        gift_card_total_display: resource.respond_to?(:gift_card_total) ? display_money(resource.gift_card_total) : nil,
-        item_count: resource.item_count,
+        discount_total: resource.discount_total&.to_f,
+        discount_total_display: display_money(resource.discount_total),
+        gift_card_total: numeric_value { resource.gift_card_total },
+        gift_card_total_display: display_money(resource.gift_card_total),
+        item_count: item_count,
         line_items_count: resource.line_items.size,
         line_items: line_items_data,
         line_items_text: line_items_text,
@@ -48,58 +48,69 @@ module SpreePlunk
         totals: totals_data,
         totals_text: totals_text,
         totals_html: totals_html,
-        shipments: shipments_data,
-        shipments_text: shipments_text,
-        shipments_html: shipments_html,
+        fulfillments: fulfillments_data,
+        fulfillments_text: fulfillments_text,
+        fulfillments_html: fulfillments_html,
         billing_address: address_data(resource.bill_address),
         billing_address_text: address_text(resource.bill_address),
         shipping_address: address_data(resource.ship_address),
         shipping_address_text: address_text(resource.ship_address),
-        completed_at: resource.completed_at&.iso8601,
-        canceled_at: resource.canceled_at&.iso8601,
+        completed_at: completed_at&.iso8601,
+        canceled_at: (resource.canceled_at if resource.is_a?(::Spree::Order))&.iso8601,
         store_url: storefront_url
       )
     end
 
     def display_total
       return unless resource
-      return resource.display_total.to_s if resource.respond_to?(:display_total)
-
       "#{resource.currency} #{format('%.2f', resource.total.to_f)}"
     end
 
+    def completed_at
+      return resource.orders.filter_map(&:completed_at).max if resource.is_a?(::Spree::OrderGroup)
+
+      resource.completed_at
+    end
+
+    def order_status
+      resource.status if resource.is_a?(::Spree::Order)
+    end
+
+    def item_count
+      return resource.line_items.sum(&:quantity) if resource.is_a?(::Spree::OrderGroup)
+
+      resource.total_quantity
+    end
+
     def customer_email
-      resource&.email.presence || resource&.user&.email
+      resource&.email.presence || resource&.customer&.email
     end
 
     def customer_name
-      name_from_address.presence || name_from_user
+      name_from_address.presence || name_from_customer
     end
 
     def customer_first_name
-      resource&.ship_address&.firstname.presence ||
-        resource&.bill_address&.firstname.presence ||
-        resource&.user&.try(:first_name)
+      resource&.ship_address&.first_name.presence ||
+        resource&.bill_address&.first_name.presence ||
+        resource&.customer&.first_name
     end
 
     def customer_last_name
-      resource&.ship_address&.lastname.presence ||
-        resource&.bill_address&.lastname.presence ||
-        resource&.user&.try(:last_name)
+      resource&.ship_address&.last_name.presence ||
+        resource&.bill_address&.last_name.presence ||
+        resource&.customer&.last_name
     end
 
     def name_from_address
       address = resource&.ship_address || resource&.bill_address
-      return address.name if address&.respond_to?(:name)
-
-      [address&.firstname, address&.lastname].compact_blank.join(' ')
+      address&.full_name
     end
 
-    def name_from_user
-      return unless resource&.user
-      return resource.user.name if resource.user.respond_to?(:name)
+    def name_from_customer
+      return unless resource&.customer
 
-      [resource.user.try(:first_name), resource.user.try(:last_name)].compact_blank.join(' ')
+      resource.customer.full_name
     end
 
     def line_items_data
@@ -171,9 +182,9 @@ module SpreePlunk
     def totals_data
       @totals_data ||= [
         total_row('Subtotal', resource.item_total),
-        total_row('Shipping', resource.shipment_total),
+        total_row('Shipping', resource.delivery_total),
         total_row('Tax', resource.tax_total),
-        total_row('Discount', resource.promo_total),
+        total_row('Discount', resource.discount_total),
         gift_card_total_row,
         total_row('Total', resource.total, display_total)
       ].compact.reject { |row| row[:amount].to_f.zero? && row[:label] != 'Total' }
@@ -190,8 +201,6 @@ module SpreePlunk
     end
 
     def gift_card_total_row
-      return unless resource.respond_to?(:gift_card_total)
-
       total_row('Gift card', resource.gift_card_total)
     end
 
@@ -218,39 +227,38 @@ module SpreePlunk
       HTML
     end
 
-    def shipments_data
-      @shipments_data ||= resource.shipments.map do |shipment|
-        SpreePlunk::ShipmentPresenter.new(shipment: shipment, store: store).call.merge(
-          tracking_url: shipment.respond_to?(:tracking_url) ? shipment.tracking_url : nil,
-          cost_display: display_money(shipment.cost),
-          total_display: display_money(shipment.total)
+    def fulfillments_data
+      @fulfillments_data ||= resource.fulfillments.map do |fulfillment|
+        SpreePlunk::FulfillmentPresenter.new(fulfillment: fulfillment, store: store).call.merge(
+          tracking_url: fulfillment.tracking_url,
+          delivery_total_display: display_money(fulfillment.cost)
         ).reject { |_key, value| plunk_data_blank?(value) }
       end
     end
 
-    def shipments_text
-      return if shipments_data.empty?
+    def fulfillments_text
+      return if fulfillments_data.empty?
 
-      shipments_data.map do |shipment|
+      fulfillments_data.map do |fulfillment|
         [
-          shipment[:shipment_number],
-          shipment[:shipping_method],
-          shipment[:tracking].present? ? "Tracking: #{shipment[:tracking]}" : nil
+          fulfillment[:fulfillment_number],
+          fulfillment[:delivery_method_name],
+          fulfillment[:tracking].present? ? "Tracking: #{fulfillment[:tracking]}" : nil
         ].compact.join(' - ')
       end.join("\n")
     end
 
-    def shipments_html
-      return if shipments_data.empty?
+    def fulfillments_html
+      return if fulfillments_data.empty?
 
-      items = shipments_data.map do |shipment|
+      items = fulfillments_data.map do |fulfillment|
         details = [
-          shipment[:shipping_method],
-          shipment[:tracking].present? ? "Tracking: #{shipment[:tracking]}" : nil,
-          shipment[:tracking_url]
+          fulfillment[:delivery_method_name],
+          fulfillment[:tracking].present? ? "Tracking: #{fulfillment[:tracking]}" : nil,
+          fulfillment[:tracking_url]
         ].compact.map { |value| h(value) }.join('<br>')
 
-        "<li><strong>#{h(shipment[:shipment_number])}</strong><br>#{details}</li>"
+        "<li><strong>#{h(fulfillment[:fulfillment_number])}</strong><br>#{details}</li>"
       end
 
       "<ul>#{items.join}</ul>"
@@ -260,14 +268,14 @@ module SpreePlunk
       return {} unless address
 
       {
-        name: address.respond_to?(:name) ? address.name : [address.firstname, address.lastname].compact_blank.join(' '),
-        firstname: address.firstname,
-        lastname: address.lastname,
+        name: address.full_name,
+        firstname: address.first_name,
+        lastname: address.last_name,
         address1: address.address1,
         address2: address.address2,
         city: address.city,
-        zipcode: address.zipcode,
-        state_name: address_state_name(address),
+        zipcode: address.postal_code,
+        state_name: address.state_name_text,
         country_name: address_country_name(address),
         phone: address.phone
       }.reject { |_key, value| plunk_data_blank?(value) }
@@ -285,10 +293,6 @@ module SpreePlunk
         data[:country_name],
         data[:phone].present? ? "Phone: #{data[:phone]}" : nil
       ].compact_blank.join("\n")
-    end
-
-    def address_state_name(address)
-      address.state&.name.presence || address.state_name
     end
 
     def address_country_name(address)

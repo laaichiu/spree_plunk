@@ -5,69 +5,136 @@ module SpreePlunk
     TYPE_CONFIG = {
       TransactionalEmailTypes::PASSWORD_RESET => {
         enabled_preference: :preferred_password_reset_email_enabled,
-        presenter: SpreePlunk::PasswordResetEmailPresenter
+        presenter: SpreePlunk::PasswordResetEmailPresenter,
+        template_key: 'spree/customer_mailer/password_reset_email'
       },
       TransactionalEmailTypes::NEWSLETTER_CONFIRMATION => {
         enabled_preference: :preferred_newsletter_confirmation_email_enabled,
-        presenter: SpreePlunk::NewsletterConfirmationEmailPresenter
+        presenter: SpreePlunk::NewsletterConfirmationEmailPresenter,
+        template_key: 'spree/newsletter_mailer/email_confirmation'
       },
       TransactionalEmailTypes::ORDER_CONFIRMATION => {
         enabled_preference: :preferred_order_confirmation_email_enabled,
-        presenter: SpreePlunk::OrderConfirmationEmailPresenter
+        presenter: SpreePlunk::OrderConfirmationEmailPresenter,
+        template_key: 'spree/order_mailer/confirm_email'
       },
       TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND => {
         enabled_preference: :preferred_order_confirmation_resend_email_enabled,
-        presenter: SpreePlunk::OrderConfirmationResendEmailPresenter
+        presenter: SpreePlunk::OrderConfirmationResendEmailPresenter,
+        template_key: 'spree/order_mailer/confirm_email'
       },
       TransactionalEmailTypes::ORDER_CANCELLATION => {
         enabled_preference: :preferred_order_cancellation_email_enabled,
-        presenter: SpreePlunk::OrderCancellationEmailPresenter
+        presenter: SpreePlunk::OrderCancellationEmailPresenter,
+        template_key: 'spree/order_mailer/cancel_email'
       },
-      TransactionalEmailTypes::SHIPMENT_SHIPPED => {
-        enabled_preference: :preferred_shipment_shipped_email_enabled,
-        presenter: SpreePlunk::ShipmentShippedEmailPresenter
+      TransactionalEmailTypes::FULFILLMENT_FULFILLED => {
+        enabled_preference: :preferred_fulfillment_fulfilled_email_enabled,
+        presenter: SpreePlunk::FulfillmentFulfilledEmailPresenter,
+        template_key: 'spree/fulfillment_mailer/fulfilled_email'
       },
-      TransactionalEmailTypes::REIMBURSEMENT => {
-        enabled_preference: :preferred_reimbursement_email_enabled,
-        presenter: SpreePlunk::ReimbursementNotificationEmailPresenter
+      TransactionalEmailTypes::RETURN_REFUNDED => {
+        enabled_preference: :preferred_return_refunded_email_enabled,
+        presenter: SpreePlunk::ReturnRefundedEmailPresenter,
+        template_key: 'spree/return_mailer/refunded_email'
       },
       TransactionalEmailTypes::STORE_OWNER_NOTIFICATION => {
         enabled_preference: :preferred_store_owner_notification_email_enabled,
         presenter: SpreePlunk::StoreOwnerNotificationEmailPresenter
-      },
-      TransactionalEmailTypes::PAYMENT_LINK => {
-        enabled_preference: :preferred_payment_link_email_enabled,
-        presenter: SpreePlunk::PaymentLinkEmailPresenter
       }
     }.freeze
 
-    def call(plunk_integration:, email_type:, resource: nil, email: nil, event_payload: nil)
+    def call(plunk_integration:, email_type:, resource: nil, email: nil, event_payload: nil, idempotency_key: nil)
+      event_payload = normalized_event_payload(event_payload)
+      store = plunk_integration.store || resource_store(resource) || ::Spree::Store.default
+      locale = event_value(event_payload, :locale).presence || resource_locale(resource) || store&.default_locale
+
+      with_store_locale(store, locale) do
+        perform_send(
+          plunk_integration: plunk_integration,
+          email_type: email_type,
+          resource: resource,
+          email: email,
+          event_payload: event_payload,
+          idempotency_key: idempotency_key
+        )
+      end
+    end
+
+    private
+
+    def perform_send(plunk_integration:, email_type:, resource:, email:, event_payload:, idempotency_key:)
+      return noop_result('integration_inactive') unless plunk_integration.active?
+
       config = TYPE_CONFIG[email_type.to_s]
       return failure_result('unknown_email_type', "Unknown Plunk transactional email type: #{email_type.inspect}") unless config
       return noop_result('transactional_email_disabled') unless plunk_integration.preferred_transactional_email_enabled
       return noop_result("#{email_type}_disabled") unless plunk_integration.public_send(config[:enabled_preference])
 
-      event_payload = normalized_event_payload(event_payload)
       context_result = validate_context(email_type.to_s, resource, event_payload)
       return context_result if context_result
 
-      payload = config[:presenter].new(
+      payload = presenter_for(config, email_type.to_s, resource).new(
+        **presenter_arguments(config, email_type.to_s, plunk_integration, resource, email, event_payload)
+      ).call
+
+      payload = apply_dashboard_template(
+        payload,
+        template_key: dashboard_template_key(email_type.to_s, resource, config),
+        email_type: email_type,
         plunk_integration: plunk_integration,
         resource: resource,
-        email: email,
         event_payload: event_payload
-      ).call
+      )
+      return payload if payload.is_a?(::Spree::ServiceModule::Result)
 
       validation_result = validate_payload(payload)
       return validation_result if validation_result.failure?
 
-      result = plunk_integration.send_transactional_email(payload)
+      result = plunk_integration.send_transactional_email(payload, idempotency_key: idempotency_key)
       mark_order_confirmation_delivered(resource, email_type) if result.success?
       mark_store_owner_notification_delivered(resource, email_type) if result.success?
       result
     end
 
-    private
+    def order_group_resource?(resource)
+      resource.is_a?(::Spree::OrderGroup)
+    end
+
+    def presenter_for(config, email_type, resource)
+      if order_group_resource?(resource) && [
+        TransactionalEmailTypes::ORDER_CONFIRMATION,
+        TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND
+      ].include?(email_type)
+        SpreePlunk::OrderGroupConfirmationEmailPresenter
+      else
+        config[:presenter]
+      end
+    end
+
+    def presenter_arguments(config, email_type, plunk_integration, resource, email, event_payload)
+      arguments = {
+        plunk_integration: plunk_integration,
+        resource: resource,
+        email: email,
+        event_payload: event_payload
+      }
+      if presenter_for(config, email_type, resource) == SpreePlunk::OrderGroupConfirmationEmailPresenter
+        arguments[:email_type] = email_type
+      end
+      arguments
+    end
+
+    def dashboard_template_key(email_type, resource, config)
+      if order_group_resource?(resource) && [
+        TransactionalEmailTypes::ORDER_CONFIRMATION,
+        TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND
+      ].include?(email_type)
+        'spree/order_group_mailer/confirm_email'
+      else
+        config[:template_key]
+      end
+    end
 
     def normalized_event_payload(event_payload)
       return {} if event_payload.blank?
@@ -81,30 +148,27 @@ module SpreePlunk
         return failure_result('missing_reset_token', 'Password reset emails require a reset token.') if event_value(event_payload, :reset_token).blank?
       when TransactionalEmailTypes::NEWSLETTER_CONFIRMATION
         return noop_result('missing_newsletter_subscriber') unless resource
-        return noop_result('newsletter_already_verified') if resource.respond_to?(:verified?) && resource.verified?
+        return noop_result('newsletter_already_verified') if resource.verified?
 
         token = event_value(event_payload, :verification_token).presence || resource&.verification_token
         return failure_result('missing_verification_token', 'Newsletter confirmation emails require a verification token.') if token.blank?
       when TransactionalEmailTypes::ORDER_CONFIRMATION
         return noop_result('missing_order') unless resource
-        return noop_result('order_confirmation_already_delivered') if resource.respond_to?(:confirmation_delivered?) && resource.confirmation_delivered?
+        return noop_result('order_confirmation_already_delivered') if resource.confirmation_delivered?
         return noop_result('notify_customer_disabled') if event_value(event_payload, :notify_customer) == false
       when TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND
         return noop_result('missing_order') unless resource
       when TransactionalEmailTypes::ORDER_CANCELLATION
         return noop_result('missing_order') unless resource
         return noop_result('notify_customer_disabled') if event_value(event_payload, :notify_customer) == false
-      when TransactionalEmailTypes::SHIPMENT_SHIPPED
-        return noop_result('missing_shipment') unless resource
-      when TransactionalEmailTypes::REIMBURSEMENT
-        return noop_result('missing_reimbursement') unless resource
+      when TransactionalEmailTypes::FULFILLMENT_FULFILLED
+        return noop_result('missing_fulfillment') unless resource
+      when TransactionalEmailTypes::RETURN_REFUNDED
+        return noop_result('missing_return') unless resource
       when TransactionalEmailTypes::STORE_OWNER_NOTIFICATION
         return noop_result('missing_order') unless resource
-        return noop_result('store_owner_notification_already_delivered') if resource.respond_to?(:store_owner_notification_delivered?) && resource.store_owner_notification_delivered?
+        return noop_result('store_owner_notification_already_delivered') if resource.store_owner_notification_delivered?
         return noop_result('missing_store_owner_notification_email') if resource.store&.new_order_notifications_email.blank?
-      when TransactionalEmailTypes::PAYMENT_LINK
-        return noop_result('missing_order') unless resource
-        return failure_result('missing_payment_url', 'Payment link emails require a payment URL.') if event_value(event_payload, :payment_url).blank?
       end
 
       nil
@@ -115,6 +179,75 @@ module SpreePlunk
       return event_payload[key.to_sym] if event_payload.key?(key.to_sym)
 
       nil
+    end
+
+    # Published Spree overrides take precedence for this store and locale. The
+    # original Plunk template remains the fallback until a merchant publishes
+    # a dashboard edit, so merely installing the integration changes no sends.
+    def apply_dashboard_template(payload, template_key:, email_type:, plunk_integration:, resource:, event_payload:)
+      return payload if template_key.blank?
+
+      store = plunk_integration.store || resource_store(resource) || ::Spree::Store.default
+      return payload unless store
+
+      locale = event_value(event_payload, :locale).presence || resource_locale(resource) || store.default_locale
+      locale = locale.to_s.presence || store.default_locale.to_s
+      any_locale = ::Spree::EmailTemplate::ANY_LOCALE
+      published = store.email_templates.published.where(key: template_key, locale: [locale, any_locale]).exists?
+      return payload unless published
+
+      resolver = ::Spree::Emails::TemplateResolver.for_mailers(store: store, locale: locale)
+      template = resolver.find(template_key)
+      return payload unless template
+
+      currency = resource_currency(resource).presence || store.default_currency
+      assignments = SpreePlunk::EmailTemplateAssignments.call(email_type: email_type, payload: payload, resource: resource)
+      rendered = ::Spree::Emails::Renderer.new(resolver: resolver, store: store, currency: currency).render(template, assignments)
+
+      payload.except(:template, :data).merge(
+        subject: rendered.subject.presence || payload[:subject],
+        body: rendered.html.to_s
+      )
+    rescue StandardError => error
+      Rails.error.report(error, context: { email_template: template_key, store_id: store&.id })
+      failure_result('email_template_render_failed', "Published Spree email template #{template_key.inspect} could not be rendered: #{error.message}")
+    end
+
+    def resource_locale(resource)
+      case resource
+      when ::Spree::Order, ::Spree::OrderGroup
+        resource.locale
+      when ::Spree::Fulfillment
+        resource.owner&.locale
+      when ::Spree::Return
+        resource.order.locale
+      end
+    end
+
+    def resource_store(resource)
+      resource.store if resource&.respond_to?(:store)
+    rescue ActiveModel::MissingAttributeError
+      nil
+    end
+
+    def with_store_locale(store, locale)
+      locale = locale.presence || store&.default_locale
+      return yield if locale.blank?
+
+      previous_fallbacks = Mobility.store_based_fallbacks
+      begin
+        ::Spree::Locales::SetFallbackLocaleForStore.new.call(store: store) if store
+        I18n.with_locale(locale) { yield }
+      ensure
+        Mobility.store_based_fallbacks = previous_fallbacks
+      end
+    end
+
+    def resource_currency(resource)
+      case resource
+      when ::Spree::Order, ::Spree::OrderGroup, ::Spree::Fulfillment, ::Spree::Return
+        resource.currency
+      end
     end
 
     def validate_payload(payload)
@@ -144,7 +277,6 @@ module SpreePlunk
         TransactionalEmailTypes::ORDER_CONFIRMATION,
         TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND
       ].include?(email_type.to_s)
-      return unless resource.respond_to?(:confirmation_delivered?)
       return if resource.confirmation_delivered?
 
       resource.update_column(:confirmation_delivered, true)
@@ -152,7 +284,6 @@ module SpreePlunk
 
     def mark_store_owner_notification_delivered(resource, email_type)
       return unless email_type.to_s == TransactionalEmailTypes::STORE_OWNER_NOTIFICATION
-      return unless resource.respond_to?(:store_owner_notification_delivered?)
       return if resource.store_owner_notification_delivered?
 
       resource.update_column(:store_owner_notification_delivered, true)

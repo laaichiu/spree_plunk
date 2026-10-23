@@ -1,0 +1,19 @@
+---
+subject: "Your refund for order #{{ order.number }} from {{ store.name }}"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Your refund has been processed</mj-text>
+    <mj-text mj-class="greeting">Hi {{ order.customer_name }},</mj-text>
+    <mj-text mj-class="lead">A refund for order #{{ order.number }} has been processed.</mj-text>
+    <mj-text mj-class="lead">Refunded: {{ return.refunded_total | money }}</mj-text>
+  </mj-column>
+</mj-section>
+<mj-section padding="32px 0 0">
+  <mj-column>
+    <mj-text mj-class="section-heading" padding="0 0 16px">Returned items</mj-text>
+    {% for item in return.returned_items %}
+      <mj-text align="left" padding="8px 0">{{ item.name }}{% if item.options_text != blank %} — {{ item.options_text }}{% endif %}<br />{{ item.quantity }} × {{ item.amount | money }}</mj-text>
+    {% endfor %}
+  </mj-column>
+</mj-section>

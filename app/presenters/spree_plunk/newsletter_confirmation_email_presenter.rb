@@ -33,9 +33,7 @@ module SpreePlunk
     end
 
     def subscriber_id
-      return resource.prefixed_id if resource&.respond_to?(:prefixed_id)
-
-      event_value(:id)
+      resource&.prefixed_id || event_value(:id)
     end
 
     def body(confirmation_url)

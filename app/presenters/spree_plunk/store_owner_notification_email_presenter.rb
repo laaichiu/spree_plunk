@@ -1,6 +1,12 @@
 module SpreePlunk
   class StoreOwnerNotificationEmailPresenter < OrderTransactionalEmailPresenter
     def call
+      resource_type = if resource.is_a?(::Spree::OrderGroup)
+        ::Spree::OrderGroup.name
+      else
+        ::Spree::Order.name
+      end
+
       base_payload(
         to: resolved_email,
         subject: "New order for #{store_name}",
@@ -9,7 +15,7 @@ module SpreePlunk
         data: order_data(email_type: TransactionalEmailTypes::STORE_OWNER_NOTIFICATION),
         headers: headers(
           email_type: TransactionalEmailTypes::STORE_OWNER_NOTIFICATION,
-          resource_type: ::Spree::Order.name,
+          resource_type: resource_type,
           resource_id: resource&.id
         )
       )
@@ -22,7 +28,7 @@ module SpreePlunk
     end
 
     def customer_email
-      resource&.email.presence || resource&.user&.email
+      resource&.email.presence || resource&.customer&.email
     end
 
     def body

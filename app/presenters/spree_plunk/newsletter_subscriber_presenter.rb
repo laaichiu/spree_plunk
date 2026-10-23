@@ -48,7 +48,7 @@ module SpreePlunk
       if subscriber.is_a?(Hash)
         subscriber['customer_id']
       else
-        subscriber.user&.prefixed_id
+        subscriber.customer&.prefixed_id
       end
     end
   end

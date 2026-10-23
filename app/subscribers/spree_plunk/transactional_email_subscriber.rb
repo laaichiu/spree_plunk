@@ -2,20 +2,24 @@ module SpreePlunk
   class TransactionalEmailSubscriber < Spree::Subscriber
     subscribes_to 'customer.password_reset_requested',
                   'newsletter_subscriber.subscription_requested',
-                  'order.completed',
+                  'order.placed',
                   'order.canceled',
                   'order.resend_confirmation_email',
-                  'shipment.shipped',
-                  'reimbursement.reimbursed',
+                  'order_group.completed',
+                  'order_group.resend_confirmation_email',
+                  'fulfillment.fulfilled',
+                  'return.refunded',
                   async: false
 
     on 'customer.password_reset_requested', :handle_password_reset_requested
     on 'newsletter_subscriber.subscription_requested', :handle_newsletter_subscription_requested
-    on 'order.completed', :handle_order_completed
+    on 'order.placed', :handle_order_completed
     on 'order.canceled', :handle_order_canceled
     on 'order.resend_confirmation_email', :handle_order_confirmation_resend
-    on 'shipment.shipped', :handle_shipment_shipped
-    on 'reimbursement.reimbursed', :handle_reimbursement_reimbursed
+    on 'order_group.completed', :handle_order_group_completed
+    on 'order_group.resend_confirmation_email', :handle_order_group_confirmation_resend
+    on 'fulfillment.fulfilled', :handle_fulfillment_fulfilled
+    on 'return.refunded', :handle_return_refunded
 
     private
 
@@ -37,7 +41,7 @@ module SpreePlunk
     end
 
     def handle_newsletter_subscription_requested(event)
-      subscriber = find_newsletter_subscriber(event.payload['id'])
+      subscriber = find_newsletter_subscriber(event.payload['id'], event)
       return unless subscriber
       return if subscriber.verified?
 
@@ -57,14 +61,17 @@ module SpreePlunk
     def handle_order_completed(event)
       order = find_order(event.payload['id'])
       return unless order
-      return if order.respond_to?(:confirmation_delivered?) && order.confirmation_delivered?
-      return if event_value(event.payload, :notify_customer) == false
 
-      enqueue_order_completed_confirmation(event, order)
+      if event_value(event.metadata, :notify_customer) != false &&
+          !order.confirmation_delivered?
+        enqueue_order_completed_confirmation(event, order)
+      end
       enqueue_store_owner_notification(event, order)
     end
 
     def enqueue_order_completed_confirmation(event, order)
+      return if order.grouped?
+
       integration = plunk_integration(event, store: order.store)
       return unless enabled_for?(integration, TransactionalEmailTypes::ORDER_CONFIRMATION)
 
@@ -78,19 +85,20 @@ module SpreePlunk
       )
     end
 
-    def enqueue_store_owner_notification(event, order)
-      return if order.respond_to?(:store_owner_notification_delivered?) && order.store_owner_notification_delivered?
-      return if order.store&.new_order_notifications_email.blank?
+    def enqueue_store_owner_notification(event, resource)
+      return if resource.is_a?(::Spree::Order) && resource.grouped?
+      return if resource.store_owner_notification_delivered?
+      return if resource.store&.new_order_notifications_email.blank?
 
-      integration = plunk_integration(event, store: order.store)
+      integration = plunk_integration(event, store: resource.store)
       return unless enabled_for?(integration, TransactionalEmailTypes::STORE_OWNER_NOTIFICATION)
 
       SpreePlunk::SendTransactionalEmailJob.perform_later(
         integration.id,
         TransactionalEmailTypes::STORE_OWNER_NOTIFICATION,
-        ::Spree::Order.name,
-        order.id,
-        order.store.new_order_notifications_email,
+        resource.class.name,
+        resource.id,
+        resource.store.new_order_notifications_email,
         event.payload
       )
     end
@@ -98,7 +106,7 @@ module SpreePlunk
     def handle_order_canceled(event)
       order = find_order(event.payload['id'])
       return unless order
-      return if event_value(event.payload, :notify_customer) == false
+      return if event_value(event.metadata, :notify_customer) == false
 
       integration = plunk_integration(event, store: order.store)
       return unless enabled_for?(integration, TransactionalEmailTypes::ORDER_CANCELLATION)
@@ -117,6 +125,13 @@ module SpreePlunk
       order = find_order(event.payload['id'])
       return unless order
 
+      if order.grouped?
+        return unless order.order_group
+
+        enqueue_order_group_confirmation(event, order.order_group, TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND)
+        return
+      end
+
       integration = plunk_integration(event, store: order.store)
       return unless enabled_for?(integration, TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND)
 
@@ -130,117 +145,127 @@ module SpreePlunk
       )
     end
 
-    def handle_shipment_shipped(event)
-      shipment = find_shipment(event.payload['id'])
-      order = shipment&.order
-      return unless shipment && order
+    def handle_order_group_completed(event)
+      order_group = find_order_group(event.payload['id'])
+      return unless order_group
 
-      integration = plunk_integration(event, store: order.store)
-      return unless enabled_for?(integration, TransactionalEmailTypes::SHIPMENT_SHIPPED)
+      if event_value(event.metadata, :notify_customer) != false &&
+          !order_group.confirmation_delivered?
+        enqueue_order_group_confirmation(event, order_group, TransactionalEmailTypes::ORDER_CONFIRMATION)
+      end
+      enqueue_store_owner_notification(event, order_group)
+    end
+
+    def handle_order_group_confirmation_resend(event)
+      order_group = find_order_group(event.payload['id'])
+      return unless order_group
+
+      enqueue_order_group_confirmation(event, order_group, TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND)
+    end
+
+    def enqueue_order_group_confirmation(event, order_group, email_type)
+      integration = plunk_integration(event, store: order_group.store)
+      return unless enabled_for?(integration, email_type)
 
       SpreePlunk::SendTransactionalEmailJob.perform_later(
         integration.id,
-        TransactionalEmailTypes::SHIPMENT_SHIPPED,
-        ::Spree::Shipment.name,
-        shipment.id,
+        email_type,
+        ::Spree::OrderGroup.name,
+        order_group.id,
+        order_group.email,
+        event.payload
+      )
+    end
+
+    def handle_fulfillment_fulfilled(event)
+      return if event_value(event.metadata, :notify_customer) == false
+
+      fulfillment = find_fulfillment(event.payload['id'])
+      order = fulfillment&.owner
+      return unless fulfillment && order
+
+      integration = plunk_integration(event, store: order.store)
+      return unless enabled_for?(integration, TransactionalEmailTypes::FULFILLMENT_FULFILLED)
+
+      SpreePlunk::SendTransactionalEmailJob.perform_later(
+        integration.id,
+        TransactionalEmailTypes::FULFILLMENT_FULFILLED,
+        ::Spree::Fulfillment.name,
+        fulfillment.id,
         order.email,
         event.payload
       )
     end
 
-    def handle_reimbursement_reimbursed(event)
-      reimbursement = find_reimbursement(event.payload['id'])
-      order = reimbursement&.order
-      return unless reimbursement && order
+    def handle_return_refunded(event)
+      return_record = find_return(event.payload['id'])
+      order = return_record&.order
+      return unless return_record && order
+      return if return_record.refunded_total.zero?
 
       integration = plunk_integration(event, store: order.store)
-      return unless enabled_for?(integration, TransactionalEmailTypes::REIMBURSEMENT)
+      return unless enabled_for?(integration, TransactionalEmailTypes::RETURN_REFUNDED)
 
       SpreePlunk::SendTransactionalEmailJob.perform_later(
         integration.id,
-        TransactionalEmailTypes::REIMBURSEMENT,
-        ::Spree::Reimbursement.name,
-        reimbursement.id,
+        TransactionalEmailTypes::RETURN_REFUNDED,
+        ::Spree::Return.name,
+        return_record.id,
         order.email,
         event.payload
       )
     end
 
-    def find_newsletter_subscriber(value)
+    def find_newsletter_subscriber(value, event)
       return if value.blank?
 
-      if ::Spree::NewsletterSubscriber.respond_to?(:find_by_param)
-        ::Spree::NewsletterSubscriber.find_by_param(value)
-      elsif ::Spree::NewsletterSubscriber.respond_to?(:find_by_prefix_id)
-        ::Spree::NewsletterSubscriber.find_by_prefix_id(value)
-      else
-        ::Spree::NewsletterSubscriber.find_by(id: value)
-      end
+      scope = ::Spree::NewsletterSubscriber.all
+      store = event_store(event)
+      scope = scope.for_store(store) if store
+      scope.find_by_param(value)
     end
 
     def find_order(value)
       return if value.blank?
 
-      if ::Spree::Order.respond_to?(:find_by_param)
-        ::Spree::Order.find_by_param(value)
-      elsif ::Spree::Order.respond_to?(:find_by_prefix_id)
-        ::Spree::Order.find_by_prefix_id(value)
-      else
-        ::Spree::Order.find_by(id: value)
-      end
+      ::Spree::Order.find_by_param(value)
     end
 
-    def find_shipment(value)
+    def find_order_group(value)
       return if value.blank?
 
-      if ::Spree::Shipment.respond_to?(:find_by_param)
-        ::Spree::Shipment.find_by_param(value)
-      elsif ::Spree::Shipment.respond_to?(:find_by_prefix_id)
-        ::Spree::Shipment.find_by_prefix_id(value)
-      else
-        ::Spree::Shipment.find_by(id: value)
-      end
+      ::Spree::OrderGroup.find_by_param(value)
     end
 
-    def find_reimbursement(value)
+    def find_fulfillment(value)
       return if value.blank?
 
-      if ::Spree::Reimbursement.respond_to?(:find_by_param)
-        ::Spree::Reimbursement.find_by_param(value)
-      elsif ::Spree::Reimbursement.respond_to?(:find_by_prefix_id)
-        ::Spree::Reimbursement.find_by_prefix_id(value)
-      else
-        ::Spree::Reimbursement.find_by(id: value)
-      end
+      ::Spree::Fulfillment.find_by_param(value)
+    end
+
+    def find_return(value)
+      return if value.blank?
+
+      ::Spree::Return.find_by_param(value)
     end
 
     def plunk_integration(event, store: nil, store_id: nil)
-      store_ids = [
-        store&.id,
-        resolve_store_id(store_id),
-        event.store_id,
-        ::Spree::Store.default&.id
-      ].compact.uniq
+      candidate_store_id = store&.id || resolve_store_id(store_id) || event_store(event)&.id
+      return ::Spree::Integrations::Plunk.active.find_by(store_id: candidate_store_id) if candidate_store_id.present?
 
-      store_ids.each do |candidate_store_id|
-        integration = ::Spree::Integrations::Plunk.find_by(store_id: candidate_store_id)
-        return integration if integration
-      end
+      default_store = ::Spree::Store.default
+      ::Spree::Integrations::Plunk.active.find_by(store_id: default_store.id) if default_store
+    end
 
-      nil
+    def event_store(event)
+      ::Spree::Store.find_by_param(event.payload['store_id']) ||
+        ::Spree::Store.find_by(id: event.store_id)
     end
 
     def resolve_store_id(value)
       return if value.blank?
 
-      store =
-        if ::Spree::Store.respond_to?(:find_by_param)
-          ::Spree::Store.find_by_param(value)
-        elsif ::Spree::Store.respond_to?(:find_by_prefix_id)
-          ::Spree::Store.find_by_prefix_id(value)
-        else
-          ::Spree::Store.find_by(id: value)
-        end
+      store = ::Spree::Store.find_by_param(value)
 
       store&.id
     end
@@ -265,20 +290,20 @@ module SpreePlunk
         integration.preferred_order_confirmation_resend_email_enabled
       when TransactionalEmailTypes::ORDER_CANCELLATION
         integration.preferred_order_cancellation_email_enabled
-      when TransactionalEmailTypes::SHIPMENT_SHIPPED
-        integration.preferred_shipment_shipped_email_enabled
-      when TransactionalEmailTypes::REIMBURSEMENT
-        integration.preferred_reimbursement_email_enabled
+      when TransactionalEmailTypes::FULFILLMENT_FULFILLED
+        integration.preferred_fulfillment_fulfilled_email_enabled
+      when TransactionalEmailTypes::RETURN_REFUNDED
+        integration.preferred_return_refunded_email_enabled
       when TransactionalEmailTypes::STORE_OWNER_NOTIFICATION
         integration.preferred_store_owner_notification_email_enabled
-      when TransactionalEmailTypes::PAYMENT_LINK
-        integration.preferred_payment_link_email_enabled
       else
         false
       end
     end
 
     def event_value(payload, key)
+      return if payload.blank?
+
       return payload[key.to_s] if payload.key?(key.to_s)
       return payload[key.to_sym] if payload.key?(key.to_sym)
 

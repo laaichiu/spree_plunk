@@ -10,8 +10,8 @@ RSpec.describe SpreePlunk::StoreOwnerNotificationEmailPresenter do
       new_order_notifications_email: 'owner@example.com'
     )
     integration = build(:plunk_integration, store: store, preferred_store_owner_notification_template_id: 'tpl_owner')
-    user = create(:user, email: 'buyer@example.com')
-    order = create(:completed_order_with_totals, store: store, user: user, email: user.email)
+    user = create(:customer, email: 'buyer@example.com')
+    order = create(:completed_order_with_totals, store: store, customer: user, email: user.email)
 
     payload = described_class.new(plunk_integration: integration, resource: order).call
 

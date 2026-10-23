@@ -14,8 +14,8 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
       preferred_order_confirmation_email_enabled: order_confirmation_enabled,
       preferred_order_confirmation_resend_email_enabled: order_confirmation_resend_enabled,
       preferred_order_cancellation_email_enabled: order_cancellation_enabled,
-      preferred_shipment_shipped_email_enabled: shipment_shipped_enabled,
-      preferred_reimbursement_email_enabled: reimbursement_enabled,
+      preferred_fulfillment_fulfilled_email_enabled: fulfillment_fulfilled_enabled,
+      preferred_return_refunded_email_enabled: return_enabled,
       preferred_store_owner_notification_email_enabled: store_owner_notification_enabled
     )
   end
@@ -25,8 +25,8 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
   let(:order_confirmation_enabled) { false }
   let(:order_confirmation_resend_enabled) { false }
   let(:order_cancellation_enabled) { false }
-  let(:shipment_shipped_enabled) { false }
-  let(:reimbursement_enabled) { false }
+  let(:fulfillment_fulfilled_enabled) { false }
+  let(:return_enabled) { false }
   let(:store_owner_notification_enabled) { false }
   let(:subscriber) { described_class.new }
 
@@ -118,14 +118,28 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
         payload
       )
     end
+
+    it 'does not send a newsletter confirmation to another store integration' do
+      other_store = create(:store)
+      newsletter_subscriber = create(:newsletter_subscriber, :unverified, store: other_store)
+      event = Spree::Event.new(
+        name: 'newsletter_subscriber.subscription_requested',
+        store_id: other_store.id,
+        payload: { 'id' => newsletter_subscriber.to_param, 'store_id' => other_store.to_param }
+      )
+
+      expect {
+        subscriber.send(:handle_newsletter_subscription_requested, event)
+      }.not_to have_enqueued_job(SpreePlunk::SendTransactionalEmailJob)
+    end
   end
 
   context 'when order confirmation resend handoff is enabled' do
     let(:order_confirmation_resend_enabled) { true }
 
     it 'enqueues a resend for the order confirmation event' do
-      user = create(:user, email: 'buyer@example.com')
-      order = create(:completed_order_with_totals, store: store, user: user, email: user.email)
+      user = create(:customer, email: 'buyer@example.com')
+      order = create(:completed_order_with_totals, store: store, customer: user, email: user.email)
       event = Spree::Event.new(
         name: 'order.resend_confirmation_email',
         store_id: store.id,
@@ -145,12 +159,37 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
     end
   end
 
+  context 'when grouped order confirmation resend handoff is enabled' do
+    let(:order_confirmation_resend_enabled) { true }
+
+    it 'enqueues a resend for the order group event' do
+      user = create(:customer, email: 'buyer@example.com')
+      order_group = create(:order_group, store: store, customer: user, email: user.email)
+      event = Spree::Event.new(
+        name: 'order_group.resend_confirmation_email',
+        store_id: store.id,
+        payload: { 'id' => order_group.to_param }
+      )
+
+      expect {
+        subscriber.send(:handle_order_group_confirmation_resend, event)
+      }.to have_enqueued_job(SpreePlunk::SendTransactionalEmailJob).with(
+        integration.id,
+        SpreePlunk::TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND,
+        Spree::OrderGroup.name,
+        order_group.id,
+        order_group.email,
+        { 'id' => order_group.to_param }
+      )
+    end
+  end
+
   context 'when order confirmation handoff is enabled' do
     let(:order_confirmation_enabled) { true }
 
     it 'enqueues a checkout completion confirmation send' do
-      user = create(:user, email: 'buyer@example.com')
-      order = create(:completed_order_with_totals, store: store, user: user, email: user.email, confirmation_delivered: false)
+      user = create(:customer, email: 'buyer@example.com')
+      order = create(:completed_order_with_totals, store: store, customer: user, email: user.email, confirmation_delivered: false)
       payload = { 'id' => order.to_param, 'notify_customer' => true }
       event = Spree::Event.new(
         name: 'order.completed',
@@ -188,7 +227,8 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
       event = Spree::Event.new(
         name: 'order.completed',
         store_id: store.id,
-        payload: { 'id' => order.to_param, 'notify_customer' => false }
+        payload: { 'id' => order.to_param },
+        metadata: { 'notify_customer' => false }
       )
 
       expect {
@@ -205,11 +245,11 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
     end
 
     it 'enqueues a store owner notification from order completion' do
-      user = create(:user, email: 'buyer@example.com')
+      user = create(:customer, email: 'buyer@example.com')
       order = create(
         :completed_order_with_totals,
         store: store,
-        user: user,
+        customer: user,
         email: user.email,
         confirmation_delivered: false,
         store_owner_notification_delivered: false
@@ -256,8 +296,8 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
     let(:order_cancellation_enabled) { true }
 
     it 'enqueues an order cancellation send' do
-      user = create(:user, email: 'buyer@example.com')
-      order = create(:completed_order_with_totals, store: store, user: user, email: user.email)
+      user = create(:customer, email: 'buyer@example.com')
+      order = create(:completed_order_with_totals, store: store, customer: user, email: user.email)
       payload = { 'id' => order.to_param, 'notify_customer' => true }
       event = Spree::Event.new(
         name: 'order.canceled',
@@ -282,7 +322,8 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
       event = Spree::Event.new(
         name: 'order.canceled',
         store_id: store.id,
-        payload: { 'id' => order.to_param, 'notify_customer' => false }
+        payload: { 'id' => order.to_param },
+        metadata: { 'notify_customer' => false }
       )
 
       expect {
@@ -291,53 +332,53 @@ RSpec.describe SpreePlunk::TransactionalEmailSubscriber do
     end
   end
 
-  context 'when shipment shipped handoff is enabled' do
-    let(:shipment_shipped_enabled) { true }
+  context 'when fulfillment shipped handoff is enabled' do
+    let(:fulfillment_fulfilled_enabled) { true }
 
-    it 'enqueues a shipment shipped send' do
-      user = create(:user, email: 'buyer@example.com')
-      shipment = create(:shipped_order, store: store, user: user, email: user.email).shipments.first
-      payload = { 'id' => shipment.to_param }
+    it 'enqueues a fulfillment shipped send' do
+      user = create(:customer, email: 'buyer@example.com')
+      fulfillment = create_fulfilled_order(store: store, customer: user).fulfillments.first
+      payload = { 'id' => fulfillment.to_param }
       event = Spree::Event.new(
-        name: 'shipment.shipped',
+        name: 'fulfillment.fulfilled',
         store_id: store.id,
         payload: payload
       )
 
       expect {
-        subscriber.send(:handle_shipment_shipped, event)
+        subscriber.send(:handle_fulfillment_fulfilled, event)
       }.to have_enqueued_job(SpreePlunk::SendTransactionalEmailJob).with(
         integration.id,
-        SpreePlunk::TransactionalEmailTypes::SHIPMENT_SHIPPED,
-        Spree::Shipment.name,
-        shipment.id,
-        shipment.order.email,
+        SpreePlunk::TransactionalEmailTypes::FULFILLMENT_FULFILLED,
+        Spree::Fulfillment.name,
+        fulfillment.id,
+        fulfillment.owner.email,
         payload
       )
     end
   end
 
-  context 'when reimbursement handoff is enabled' do
-    let(:reimbursement_enabled) { true }
+  context 'when return refund handoff is enabled' do
+    let(:return_enabled) { true }
 
-    it 'enqueues a reimbursement send' do
+    it 'enqueues a return refund send' do
       order = instance_double(Spree::Order, store: store, email: 'buyer@example.com')
-      reimbursement = instance_double(Spree::Reimbursement, id: 42, order: order)
-      payload = { 'id' => 'reimb_test' }
+      payload = { 'id' => 'ret_test' }
       event = Spree::Event.new(
-        name: 'reimbursement.reimbursed',
+        name: 'return.refunded',
         store_id: store.id,
         payload: payload
       )
-      allow(subscriber).to receive(:find_reimbursement).and_return(reimbursement)
+      return_record = instance_double(Spree::Return, id: 42, order: order, refunded_total: BigDecimal('10'))
+      allow(subscriber).to receive(:find_return).and_return(return_record)
 
       expect {
-        subscriber.send(:handle_reimbursement_reimbursed, event)
+        subscriber.send(:handle_return_refunded, event)
       }.to have_enqueued_job(SpreePlunk::SendTransactionalEmailJob).with(
         integration.id,
-        SpreePlunk::TransactionalEmailTypes::REIMBURSEMENT,
-        Spree::Reimbursement.name,
-        reimbursement.id,
+        SpreePlunk::TransactionalEmailTypes::RETURN_REFUNDED,
+        Spree::Return.name,
+        return_record.id,
         order.email,
         payload
       )

@@ -5,10 +5,9 @@ module SpreePlunk
     ORDER_CONFIRMATION = 'order_confirmation'.freeze
     ORDER_CONFIRMATION_RESEND = 'order_confirmation_resend'.freeze
     ORDER_CANCELLATION = 'order_cancellation'.freeze
-    SHIPMENT_SHIPPED = 'shipment_shipped'.freeze
-    REIMBURSEMENT = 'reimbursement'.freeze
+    FULFILLMENT_FULFILLED = 'fulfillment_fulfilled'.freeze
+    RETURN_REFUNDED = 'return_refunded'.freeze
     STORE_OWNER_NOTIFICATION = 'store_owner_notification'.freeze
-    PAYMENT_LINK = 'payment_link'.freeze
 
     ALL = [
       PASSWORD_RESET,
@@ -16,10 +15,9 @@ module SpreePlunk
       ORDER_CONFIRMATION,
       ORDER_CONFIRMATION_RESEND,
       ORDER_CANCELLATION,
-      SHIPMENT_SHIPPED,
-      REIMBURSEMENT,
-      STORE_OWNER_NOTIFICATION,
-      PAYMENT_LINK
+      FULFILLMENT_FULFILLED,
+      RETURN_REFUNDED,
+      STORE_OWNER_NOTIFICATION
     ].freeze
   end
 end

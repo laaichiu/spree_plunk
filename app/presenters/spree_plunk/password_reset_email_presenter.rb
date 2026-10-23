@@ -18,7 +18,7 @@ module SpreePlunk
         },
         headers: headers(
           email_type: TransactionalEmailTypes::PASSWORD_RESET,
-          resource_type: ::Spree.user_class.name,
+          resource_type: ::Spree.customer_class.name,
           resource_id: nil
         )
       )

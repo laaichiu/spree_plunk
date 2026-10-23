@@ -136,13 +136,7 @@ module SpreePlunk
       store_id = event_value(:store_id)
       return if store_id.blank?
 
-      if ::Spree::Store.respond_to?(:find_by_param)
-        ::Spree::Store.find_by_param(store_id)
-      elsif ::Spree::Store.respond_to?(:find_by_prefix_id)
-        ::Spree::Store.find_by_prefix_id(store_id)
-      else
-        ::Spree::Store.find_by(id: store_id)
-      end
+      ::Spree::Store.find_by_param(store_id)
     end
 
     def store_name

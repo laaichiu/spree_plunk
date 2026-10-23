@@ -1,0 +1,21 @@
+---
+subject: "Order #{{ order.number }} from {{ store.name }} has shipped"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Your order has shipped</mj-text>
+    <mj-text mj-class="greeting">Hi {{ order.customer_name }},</mj-text>
+    <mj-text mj-class="lead">Order #{{ order.number }} is on its way.</mj-text>
+    {% if fulfillment.delivery_method_name != blank %}<mj-text mj-class="lead">Delivery method: {{ fulfillment.delivery_method_name }}</mj-text>{% endif %}
+    {% if fulfillment.tracking != blank %}<mj-text mj-class="lead">Tracking number: {{ fulfillment.tracking }}</mj-text>{% endif %}
+    {% if fulfillment.tracking_url != blank %}<mj-button href="{{ fulfillment.tracking_url }}">Track shipment</mj-button>{% endif %}
+  </mj-column>
+</mj-section>
+<mj-section padding="32px 0 0">
+  <mj-column>
+    <mj-text mj-class="section-heading" padding="0 0 16px">Items in this shipment</mj-text>
+    {% for item in fulfillment.items %}
+      <mj-text align="left" padding="8px 0">{{ item.name }}{% if item.options_text != blank %} — {{ item.options_text }}{% endif %}<br />Quantity: {{ item.quantity }}</mj-text>
+    {% endfor %}
+  </mj-column>
+</mj-section>

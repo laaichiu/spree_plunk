@@ -4,8 +4,8 @@ RSpec.describe SpreePlunk::OrderConfirmationEmailPresenter do
   it 'builds a Plunk order confirmation payload' do
     store = create(:store, name: 'Example Store', code: 'example-store', mail_from_address: 'orders@example.com')
     integration = build(:plunk_integration, store: store, preferred_order_confirmation_template_id: 'tpl_order')
-    user = create(:user, email: 'buyer@example.com')
-    order = create(:completed_order_with_totals, store: store, user: user, email: user.email)
+    user = create(:customer, email: 'buyer@example.com')
+    order = create(:completed_order_with_totals, store: store, customer: user, email: user.email)
 
     payload = described_class.new(plunk_integration: integration, resource: order).call
 

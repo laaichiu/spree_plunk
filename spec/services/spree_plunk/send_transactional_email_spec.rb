@@ -22,10 +22,9 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
       preferred_order_confirmation_email_enabled: order_confirmation_enabled,
       preferred_order_confirmation_resend_email_enabled: order_confirmation_resend_enabled,
       preferred_order_cancellation_email_enabled: order_cancellation_enabled,
-      preferred_shipment_shipped_email_enabled: shipment_shipped_enabled,
-      preferred_reimbursement_email_enabled: reimbursement_enabled,
+      preferred_fulfillment_fulfilled_email_enabled: fulfillment_fulfilled_enabled,
+      preferred_return_refunded_email_enabled: return_enabled,
       preferred_store_owner_notification_email_enabled: store_owner_notification_enabled,
-      preferred_payment_link_email_enabled: payment_link_enabled,
       preferred_default_from_email: 'plunk@example.com',
       preferred_default_from_name: 'Example Store'
     )
@@ -36,10 +35,9 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
   let(:order_confirmation_enabled) { false }
   let(:order_confirmation_resend_enabled) { false }
   let(:order_cancellation_enabled) { false }
-  let(:shipment_shipped_enabled) { false }
-  let(:reimbursement_enabled) { false }
+  let(:fulfillment_fulfilled_enabled) { false }
+  let(:return_enabled) { false }
   let(:store_owner_notification_enabled) { false }
-  let(:payment_link_enabled) { false }
   let(:email_type) { SpreePlunk::TransactionalEmailTypes::PASSWORD_RESET }
   let(:resource) { nil }
   let(:email) { 'buyer@example.com' }
@@ -125,7 +123,8 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
   context 'when sending an order confirmation from checkout completion' do
     let(:email_type) { SpreePlunk::TransactionalEmailTypes::ORDER_CONFIRMATION }
     let(:order_confirmation_enabled) { true }
-    let(:resource) { create(:completed_order_with_totals, store: store, email: 'buyer@example.com', confirmation_delivered: false) }
+    let(:user) { create(:customer, email: 'buyer@example.com') }
+    let(:resource) { create(:completed_order_with_totals, store: store, customer: user, email: 'buyer@example.com', confirmation_delivered: false) }
     let(:email) { resource.email }
     let(:event_payload) { { 'id' => resource.to_param, 'notify_customer' => true } }
 
@@ -157,6 +156,53 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
     end
   end
 
+  context 'when a published dashboard email template exists' do
+    let(:email_type) { SpreePlunk::TransactionalEmailTypes::ORDER_CONFIRMATION }
+    let(:order_confirmation_enabled) { true }
+    let(:user) { create(:customer, email: 'buyer@example.com') }
+    let(:resource) { create(:completed_order_with_totals, store: store, customer: user, email: 'buyer@example.com', confirmation_delivered: false) }
+    let(:email) { resource.email }
+    let(:event_payload) { { 'id' => resource.to_param, 'notify_customer' => true, 'locale' => 'fr' } }
+
+    before do
+      Spree::EmailTemplate.create!(
+        store: store,
+        key: 'spree/order_mailer/confirm_email',
+        locale: Spree::EmailTemplate::ANY_LOCALE,
+        status: 'published',
+        subject: '{{ store.name }} / {{ order.number }}',
+        body: '<p>Dashboard edit: {{ store.name }} — {{ order.number }} — {{ order.customer_name }} — {{ order.total_minus_store_credits | money }} {% for item in order.items %}{{ item.name }}{% endfor %}</p>',
+        base_subject: 'Original subject',
+        base_body: '<p>Original body</p>',
+        published_at: Time.current
+      )
+    end
+
+    it 'renders with Spree 6 assignments under the requested locale and store fallback' do
+      previous_fallbacks = Mobility.store_based_fallbacks
+
+      expect(result).to be_success
+      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send').with { |request|
+        body = JSON.parse(request.body)
+
+        expect(body['subject']).to include(resource.number)
+        expect(body['body']).to include('Dashboard edit:', store.name, resource.number, resource.ship_address.full_name)
+        expect(body['body']).to include(resource.line_items.first.name)
+        expect(body).not_to have_key('template')
+        true
+      }).to have_been_made
+      expect(Mobility.store_based_fallbacks).to equal(previous_fallbacks)
+    end
+
+    it 'does not send the Plunk fallback when a published dashboard template fails to render' do
+      allow(Spree::Emails::Renderer).to receive(:new).and_raise(StandardError, 'invalid published template')
+
+      expect(result).to be_failure
+      expect(result.value).to include(error_code: 'email_template_render_failed', retryable: false)
+      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send')).not_to have_been_made
+    end
+  end
+
   context 'when sending an order confirmation resend' do
     let(:email_type) { SpreePlunk::TransactionalEmailTypes::ORDER_CONFIRMATION_RESEND }
     let(:order_confirmation_resend_enabled) { true }
@@ -182,49 +228,49 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
     end
   end
 
-  context 'when sending a shipment shipped notification' do
-    let(:email_type) { SpreePlunk::TransactionalEmailTypes::SHIPMENT_SHIPPED }
-    let(:shipment_shipped_enabled) { true }
-    let(:user) { create(:user, email: 'buyer@example.com') }
-    let(:resource) { create(:shipped_order, store: store, user: user, email: user.email).shipments.first }
-    let(:email) { resource.order.email }
+  context 'when sending a fulfillment shipped notification' do
+    let(:email_type) { SpreePlunk::TransactionalEmailTypes::FULFILLMENT_FULFILLED }
+    let(:fulfillment_fulfilled_enabled) { true }
+    let(:user) { create(:customer, email: 'buyer@example.com') }
+    let(:resource) { create_fulfilled_order(store: store, customer: user).fulfillments.first }
+    let(:email) { resource.owner.email }
 
-    it 'sends shipment data to Plunk' do
+    it 'sends fulfillment data to Plunk' do
       expect(result).to be_success
 
       expect(a_request(:post, 'https://next-api.useplunk.com/v1/send').with { |request|
         body = JSON.parse(request.body)
 
-        expect(plunk_data_value(body['data'], 'email_type')).to eq(SpreePlunk::TransactionalEmailTypes::SHIPMENT_SHIPPED)
-        expect(plunk_data_value(body['data'], 'shipment_number')).to eq(resource.number)
+        expect(plunk_data_value(body['data'], 'email_type')).to eq(SpreePlunk::TransactionalEmailTypes::FULFILLMENT_FULFILLED)
+        expect(plunk_data_value(body['data'], 'fulfillment_number')).to eq(resource.number)
         expect(plunk_data_value(body['data'], 'recipient_email')).to eq('buyer@example.com')
-        expect(plunk_data_value(body['data'], 'shipment_items_html')).to include('<table')
-        expect(plunk_data_value(body['data'], 'shipment_items')).not_to be_empty
+        expect(plunk_data_value(body['data'], 'fulfillment_items_html')).to include('<table')
+        expect(plunk_data_value(body['data'], 'fulfillment_items')).not_to be_empty
         true
       }).to have_been_made
     end
   end
 
-  context 'when sending a reimbursement notification' do
-    let(:email_type) { SpreePlunk::TransactionalEmailTypes::REIMBURSEMENT }
-    let(:reimbursement_enabled) { true }
-    let(:user) { create(:user, email: 'buyer@example.com') }
+  context 'when sending a return notification' do
+    let(:email_type) { SpreePlunk::TransactionalEmailTypes::RETURN_REFUNDED }
+    let(:return_enabled) { true }
+    let(:user) { create(:customer, email: 'buyer@example.com') }
     let(:resource) do
-      create(:reimbursement).tap do |reimbursement|
-        reimbursement.order.update_columns(store_id: store.id, user_id: user.id, email: user.email)
-        reimbursement.order.reload
+      order = create_fulfilled_order(store: store, customer: user)
+      create(:return, order: order, stock_location: order.fulfillments.first.stock_location, status: 'refunded').tap do |return_record|
+        allow(return_record).to receive(:refunded_total).and_return(BigDecimal('19.99'))
       end
     end
     let(:email) { resource.order.email }
 
-    it 'sends reimbursement data to Plunk' do
+    it 'sends return refund data to Plunk' do
       expect(result).to be_success
 
       expect(a_request(:post, 'https://next-api.useplunk.com/v1/send').with { |request|
         body = JSON.parse(request.body)
 
-        expect(plunk_data_value(body['data'], 'email_type')).to eq(SpreePlunk::TransactionalEmailTypes::REIMBURSEMENT)
-        expect(plunk_data_value(body['data'], 'reimbursement_number')).to eq(resource.number)
+        expect(plunk_data_value(body['data'], 'email_type')).to eq(SpreePlunk::TransactionalEmailTypes::RETURN_REFUNDED)
+        expect(plunk_data_value(body['data'], 'return_number')).to eq(resource.number)
         expect(plunk_data_value(body['data'], 'recipient_email')).to eq('buyer@example.com')
         expect(plunk_data_value(body['data'], 'return_items_html')).to include('<table')
         expect(plunk_data_value(body['data'], 'return_items')).not_to be_empty
@@ -237,8 +283,8 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
     let(:email_type) { SpreePlunk::TransactionalEmailTypes::STORE_OWNER_NOTIFICATION }
     let(:store_owner_notification_enabled) { true }
     let(:store) { create(:store, name: 'Example Store', mail_from_address: 'orders@example.com', new_order_notifications_email: 'owner@example.com') }
-    let(:user) { create(:user, email: 'buyer@example.com') }
-    let(:resource) { create(:completed_order_with_totals, store: store, user: user, email: user.email, store_owner_notification_delivered: false) }
+    let(:user) { create(:customer, email: 'buyer@example.com') }
+    let(:resource) { create(:completed_order_with_totals, store: store, customer: user, email: user.email, store_owner_notification_delivered: false) }
     let(:email) { store.new_order_notifications_email }
 
     it 'sends the notification and marks it as delivered after Plunk accepts it' do
@@ -269,38 +315,4 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
     end
   end
 
-  context 'when sending a payment link' do
-    let(:email_type) { SpreePlunk::TransactionalEmailTypes::PAYMENT_LINK }
-    let(:payment_link_enabled) { true }
-    let(:user) { create(:user, email: 'buyer@example.com') }
-    let(:resource) { create(:order_with_line_items, store: store, user: user, email: user.email) }
-    let(:email) { resource.email }
-    let(:event_payload) { { 'payment_url' => "https://shop.example.com/checkout/#{resource.token}/payment" } }
-
-    it 'sends payment link data to Plunk without persisting the link as contact data' do
-      expect(result).to be_success
-
-      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send').with { |request|
-        body = JSON.parse(request.body)
-
-        expect(body['to']).to eq('buyer@example.com')
-        expect(plunk_data_value(body['data'], 'email_type')).to eq(SpreePlunk::TransactionalEmailTypes::PAYMENT_LINK)
-        expect(body.dig('data', 'payment_url')).to eq('value' => event_payload['payment_url'], 'persistent' => false)
-        true
-      }).to have_been_made
-    end
-  end
-
-  context 'when sending a payment link without a payment URL' do
-    let(:email_type) { SpreePlunk::TransactionalEmailTypes::PAYMENT_LINK }
-    let(:payment_link_enabled) { true }
-    let(:resource) { create(:order_with_line_items, store: store, email: 'buyer@example.com') }
-    let(:email) { resource.email }
-
-    it 'fails before calling Plunk' do
-      expect(result).to be_failure
-      expect(result.value).to include(error_code: 'missing_payment_url')
-      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send')).not_to have_been_made
-    end
-  end
 end

@@ -1,15 +1,15 @@
 module SpreePlunk
-  class ShipmentShippedEmailPresenter < TransactionalEmailPresenter
+  class FulfillmentFulfilledEmailPresenter < TransactionalEmailPresenter
     def call
       base_payload(
         to: resolved_email,
         subject: "Your #{store_name} order #{order_number} has shipped",
         body: body,
-        template_id: plunk_integration.preferred_shipment_shipped_template_id,
-        data: shipment_data,
+        template_id: plunk_integration.preferred_fulfillment_fulfilled_template_id,
+        data: fulfillment_data,
         headers: headers(
-          email_type: TransactionalEmailTypes::SHIPMENT_SHIPPED,
-          resource_type: ::Spree::Shipment.name,
+          email_type: TransactionalEmailTypes::FULFILLMENT_FULFILLED,
+          resource_type: ::Spree::Fulfillment.name,
           resource_id: resource&.id
         )
       )
@@ -18,36 +18,35 @@ module SpreePlunk
     private
 
     def resolved_email
-      email.presence || order&.email.presence || order&.user&.email
+      email.presence || order&.email.presence || order&.customer&.email
     end
 
     def order
-      resource&.order
+      resource&.owner
     end
 
     def order_number
       order&.number
     end
 
-    def shipment_data
+    def fulfillment_data
       return {} unless resource
 
       non_persistent_data_hash(
-        SpreePlunk::ShipmentPresenter.new(shipment: resource, store: store).call.merge(
-          email_type: TransactionalEmailTypes::SHIPMENT_SHIPPED,
+        SpreePlunk::FulfillmentPresenter.new(fulfillment: resource, store: store).call.merge(
+          email_type: TransactionalEmailTypes::FULFILLMENT_FULFILLED,
           store_name: store_name,
           recipient_email: resolved_email,
           customer_email: customer_email,
           customer_name: customer_name,
           tracking_url: tracking_url,
           tracking_link_html: tracking_link_html,
-          cost_display: display_money(resource.cost),
-          total_display: display_money(resource.total),
-          discount_total_display: display_money(resource.promo_total),
-          shipment_items_count: shipment_items_data.sum { |item| item[:quantity].to_i },
-          shipment_items: shipment_items_data,
-          shipment_items_text: shipment_items_text,
-          shipment_items_html: shipment_items_html,
+          delivery_total_display: display_money(resource.cost),
+          discount_total_display: display_money(resource.discount_total),
+          fulfillment_items_count: fulfillment_items_data.sum { |item| item[:quantity].to_i },
+          fulfillment_items: fulfillment_items_data,
+          fulfillment_items_text: fulfillment_items_text,
+          fulfillment_items_html: fulfillment_items_html,
           order_total: order_display_total,
           order_total_amount: numeric_value { order&.total },
           store_url: storefront_url
@@ -58,7 +57,7 @@ module SpreePlunk
     def body
       paragraphs = ["Your order #{order_number} has shipped."]
       paragraphs << "Tracking: #{resource.tracking}" if resource&.tracking.present?
-      paragraphs << "Track your shipment: #{tracking_url}" if tracking_url.present?
+      paragraphs << "Track your fulfillment: #{tracking_url}" if tracking_url.present?
 
       html_document(
         "Your #{store_name} order has shipped",
@@ -69,29 +68,26 @@ module SpreePlunk
     end
 
     def customer_email
-      order&.email.presence || order&.user&.email
+      order&.email.presence || order&.customer&.email
     end
 
     def customer_name
-      name_from_address.presence || name_from_user
+      name_from_address.presence || name_from_customer
     end
 
     def name_from_address
       address = order&.ship_address || order&.bill_address
-      return address.name if address&.respond_to?(:name)
-
-      [address&.firstname, address&.lastname].compact_blank.join(' ')
+      address&.full_name
     end
 
-    def name_from_user
-      return unless order&.user
-      return order.user.name if order.user.respond_to?(:name)
+    def name_from_customer
+      return unless order&.customer
 
-      [order.user.try(:first_name), order.user.try(:last_name)].compact_blank.join(' ')
+      order.customer.full_name
     end
 
     def tracking_url
-      @tracking_url ||= resource.respond_to?(:tracking_url) ? resource.tracking_url : nil
+      @tracking_url ||= resource&.tracking_url
     end
 
     def tracking_link_html
@@ -100,13 +96,13 @@ module SpreePlunk
       %(<a href="#{h(tracking_url)}">#{h(tracking_url)}</a>)
     end
 
-    def shipment_items_data
-      @shipment_items_data ||= resource.manifest.map do |manifest_item|
-        shipment_item_data(manifest_item)
+    def fulfillment_items_data
+      @fulfillment_items_data ||= resource.manifest.map do |manifest_item|
+        fulfillment_item_data(manifest_item)
       end.reject { |item| item[:product_name].blank? && item[:sku].blank? }
     end
 
-    def shipment_item_data(manifest_item)
+    def fulfillment_item_data(manifest_item)
       line_item = manifest_item.line_item
       variant = manifest_item.variant || line_item&.variant
       quantity = manifest_item.quantity.to_i
@@ -125,18 +121,18 @@ module SpreePlunk
 
     def variant_options_text(variant)
       return if variant.blank?
-      return variant.options_text if variant.respond_to?(:options_text) && variant.options_text.present?
+      return variant.options_text if variant.options_text.present?
 
-      option_values = variant.option_values if variant.respond_to?(:option_values)
+      option_values = variant.option_values
       return if option_values.blank?
 
       option_values.map { |option_value| option_value.presentation || option_value.name }.join(', ')
     end
 
-    def shipment_items_text
-      return if shipment_items_data.empty?
+    def fulfillment_items_text
+      return if fulfillment_items_data.empty?
 
-      shipment_items_data.map do |item|
+      fulfillment_items_data.map do |item|
         [
           item[:sku].present? ? "SKU: #{item[:sku]}" : nil,
           item[:product_name],
@@ -147,10 +143,10 @@ module SpreePlunk
       end.join("\n")
     end
 
-    def shipment_items_html
-      return if shipment_items_data.empty?
+    def fulfillment_items_html
+      return if fulfillment_items_data.empty?
 
-      rows = shipment_items_data.map do |item|
+      rows = fulfillment_items_data.map do |item|
         option_text = item[:variant_options_text].present? ? "<br><small>#{h(item[:variant_options_text])}</small>" : ''
         sku_text = item[:sku].present? ? "<br><small>SKU: #{h(item[:sku])}</small>" : ''
 
@@ -183,9 +179,7 @@ module SpreePlunk
 
     def order_display_total
       return unless order
-      return order.display_total.to_s if order.respond_to?(:display_total)
-
-      display_money(order.total)
+      order.display_total.to_s
     end
 
     def numeric_value

@@ -15,6 +15,12 @@ RSpec.describe SpreePlunk::Generators::InstallGenerator do
   end
 
   describe '#add_migrations' do
+    it 'discovers the extension migration files' do
+      generator = described_class.new([], {}, destination_root: destination_root)
+
+      expect(generator.send(:extension_has_migrations?)).to be(true)
+    end
+
     it 'installs migrations when the extension provides them' do
       generator = described_class.new([], {}, destination_root: destination_root)
 

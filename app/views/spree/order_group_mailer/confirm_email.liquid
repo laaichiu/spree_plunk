@@ -1,0 +1,19 @@
+---
+subject: "Order confirmation #{{ order_group.number }} from {{ store.name }}"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Thank you for your order</mj-text>
+    <mj-text mj-class="greeting">Hi {{ order_group.customer_name }},</mj-text>
+    <mj-text mj-class="lead">We received order #{{ order_group.number }} and are preparing it now.</mj-text>
+  </mj-column>
+</mj-section>
+<mj-section padding="32px 0 0">
+  <mj-column>
+    <mj-text mj-class="section-heading" padding="0 0 16px">Items</mj-text>
+    {% for item in order_group.items %}
+      <mj-text align="left" padding="8px 0">{{ item.name }}{% if item.options_text != blank %} — {{ item.options_text }}{% endif %}<br />{{ item.quantity }} × {{ item.price | money }} <span style="float:right">{{ item.amount | money }}</span></mj-text>
+    {% endfor %}
+    <mj-text mj-class="body" padding="16px 0 0" align="right">Total: {{ order_group.total | money }}</mj-text>
+  </mj-column>
+</mj-section>

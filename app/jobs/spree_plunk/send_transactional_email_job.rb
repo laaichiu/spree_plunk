@@ -1,7 +1,7 @@
 module SpreePlunk
   class SendTransactionalEmailJob < BaseJob
     def perform(plunk_integration_id, email_type, resource_type = nil, resource_id = nil, email = nil, event_payload = nil)
-      plunk_integration = ::Spree::Integrations::Plunk.find_by(id: plunk_integration_id)
+      plunk_integration = find_active_plunk_integration(plunk_integration_id)
       return unless plunk_integration
 
       resource = load_resource(resource_type, resource_id)
@@ -12,7 +12,8 @@ module SpreePlunk
         email_type: email_type,
         resource: resource,
         email: email,
-        event_payload: event_payload
+        event_payload: event_payload,
+        idempotency_key: job_id
       )
 
       ensure_sync_success!(
