@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>New order {{order_number}} for {{store_name ?? Shop}}</title>
+  <title>New order for {{store_name | escape ?? Shop}}</title>
   <style>
     @media only screen and (max-width: 640px) {
       .email-shell { width: 100% !important; }
@@ -20,7 +20,7 @@
         <table role="presentation" class="email-shell" width="680" cellpadding="0" cellspacing="0" style="width:680px; max-width:680px; background:#ffffff; border:1px solid #e7e5df;">
           <tr>
             <td class="email-pad" style="padding:34px 40px 12px;">
-              <div style="font-size:12px; line-height:18px; letter-spacing:0.16em; text-transform:uppercase;">{{store_name ?? Shop}}</div>
+              <div style="font-size:12px; line-height:18px; letter-spacing:0.16em; text-transform:uppercase;">{{store_name | escape ?? Shop}}</div>
               <div style="margin-top:18px; border-top:1px solid #111111;"></div>
             </td>
           </tr>
@@ -28,7 +28,7 @@
             <td class="email-pad" style="padding:28px 40px 16px;">
               <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">Store notification</div>
               <h1 class="email-title" style="margin:14px 0 0; font-size:34px; line-height:40px; font-weight:400;">New order received</h1>
-              <p style="margin:18px 0 0; font-size:15px; line-height:24px; color:#3f3d39;">Order {{order_number}} was placed by {{customer_email}}.</p>
+              <p style="margin:18px 0 0; font-size:15px; line-height:24px; color:#3f3d39;">Order {{order_number | escape}} was placed by {{customer_email | escape}}.</p>
             </td>
           </tr>
           <tr>
@@ -36,11 +36,11 @@
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e7e5df;">
                 <tr>
                   <td style="padding:18px 20px; font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">Order total</td>
-                  <td align="right" style="padding:18px 20px; font-size:18px; line-height:24px; color:#111111;">{{order_total}}</td>
+                  <td align="right" style="padding:18px 20px; font-size:18px; line-height:24px; color:#111111;">{{order_total | escape}}</td>
                 </tr>
                 <tr>
                   <td style="padding:0 20px 18px; font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">Customer</td>
-                  <td align="right" style="padding:0 20px 18px; font-size:14px; line-height:20px; color:#111111;">{{customer_name ?? Guest}} / {{customer_email}}</td>
+                  <td align="right" style="padding:0 20px 18px; font-size:14px; line-height:20px; color:#111111;">{{customer_name | escape ?? Guest}} / {{customer_email | escape}}</td>
                 </tr>
               </table>
             </td>
@@ -59,7 +59,7 @@
           </tr>
           <tr>
             <td class="email-pad" style="padding:24px 40px 34px;">
-              <a class="email-button" href="{{store_url ?? https://example.com}}" style="display:inline-block; background:#111111; color:#ffffff; text-decoration:none; padding:14px 24px; font-size:12px; line-height:16px; letter-spacing:0.12em; text-transform:uppercase;">Open store</a>
+              {% if store_url != blank %}<a class="email-button" href="{{store_url | escape}}" style="display:inline-block; background:#111111; color:#ffffff; text-decoration:none; padding:14px 24px; font-size:12px; line-height:16px; letter-spacing:0.12em; text-transform:uppercase;">Open store</a>{% endif %}
             </td>
           </tr>
         </table>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Your {{store_name ?? Shop}} order {{order_number}} confirmation</title>
+  <title>Your {{store_name | escape ?? Shop}} order confirmation {{order_number | escape}}</title>
   <style>
     @media only screen and (max-width: 640px) {
       .email-shell { width: 100% !important; }
@@ -20,15 +20,15 @@
         <table role="presentation" class="email-shell" width="680" cellpadding="0" cellspacing="0" style="width:680px; max-width:680px; background:#ffffff; border:1px solid #e7e5df;">
           <tr>
             <td class="email-pad" style="padding:34px 40px 12px;">
-              <div style="font-size:12px; line-height:18px; letter-spacing:0.16em; text-transform:uppercase;">{{store_name ?? Shop}}</div>
+              <div style="font-size:12px; line-height:18px; letter-spacing:0.16em; text-transform:uppercase;">{{store_name | escape ?? Shop}}</div>
               <div style="margin-top:18px; border-top:1px solid #111111;"></div>
             </td>
           </tr>
           <tr>
             <td class="email-pad" style="padding:28px 40px 16px;">
-              <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">Order {{order_number}}</div>
+              <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">Order {{order_number | escape}}</div>
               <h1 class="email-title" style="margin:14px 0 0; font-size:34px; line-height:40px; font-weight:400;">Thank you for your order</h1>
-              <p style="margin:18px 0 0; font-size:15px; line-height:24px; color:#3f3d39;">Hi {{customer_first_name ?? there}}, we received your order and are preparing it now.</p>
+              <p style="margin:18px 0 0; font-size:15px; line-height:24px; color:#3f3d39;">Hi {{customer_first_name | escape ?? there}}, we received your order and are preparing it now.</p>
             </td>
           </tr>
           <tr>
@@ -36,7 +36,7 @@
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e7e5df;">
                 <tr>
                   <td style="padding:18px 20px; font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">Order summary</td>
-                  <td align="right" style="padding:18px 20px; font-size:18px; line-height:24px; color:#111111;">{{order_total}}</td>
+                  <td align="right" style="padding:18px 20px; font-size:18px; line-height:24px; color:#111111;">{{order_total | escape}}</td>
                 </tr>
               </table>
             </td>
@@ -56,12 +56,12 @@
           <tr>
             <td class="email-pad" style="padding:18px 40px 6px;">
               <h2 style="margin:0 0 12px; font-size:13px; line-height:18px; letter-spacing:0.14em; text-transform:uppercase; font-weight:600;">Ship to</h2>
-              <p style="margin:0; white-space:pre-line; font-size:14px; line-height:22px; color:#3f3d39;">{{shipping_address_text}}</p>
+              <p style="margin:0; white-space:pre-line; font-size:14px; line-height:22px; color:#3f3d39;">{{shipping_address_text | escape}}</p>
             </td>
           </tr>
           <tr>
             <td class="email-pad" style="padding:24px 40px 34px;">
-              <a class="email-button" href="{{store_url ?? https://example.com}}" style="display:inline-block; background:#111111; color:#ffffff; text-decoration:none; padding:14px 24px; font-size:12px; line-height:16px; letter-spacing:0.12em; text-transform:uppercase;">Visit store</a>
+              {% if store_url != blank %}<a class="email-button" href="{{store_url | escape}}" style="display:inline-block; background:#111111; color:#ffffff; text-decoration:none; padding:14px 24px; font-size:12px; line-height:16px; letter-spacing:0.12em; text-transform:uppercase;">Visit store</a>{% endif %}
             </td>
           </tr>
         </table>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{campaign_title ?? New arrivals from Shop}}</title>
+  <title>{{campaign_title | escape ?? New arrivals from Shop}}</title>
   <style>
     @media only screen and (max-width: 640px) {
       .email-shell { width: 100% !important; }
@@ -21,15 +21,15 @@
         <table role="presentation" class="email-shell" width="700" cellpadding="0" cellspacing="0" style="width:700px; max-width:700px; background:#ffffff; border:1px solid #e7e5df;">
           <tr>
             <td class="email-pad" style="padding:34px 40px 12px;">
-              <div style="font-size:12px; line-height:18px; letter-spacing:0.16em; text-transform:uppercase;">{{store_name ?? Shop}}</div>
+              <div style="font-size:12px; line-height:18px; letter-spacing:0.16em; text-transform:uppercase;">{{store_name | escape ?? Shop}}</div>
               <div style="margin-top:18px; border-top:1px solid #111111;"></div>
             </td>
           </tr>
           <tr>
             <td class="email-pad" style="padding:32px 40px 20px;">
-              <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">{{campaign_label ?? New in}}</div>
-              <h1 class="email-title" style="margin:14px 0 0; font-size:44px; line-height:48px; font-weight:300; letter-spacing:0.02em;">{{campaign_title ?? Refined pieces for the season}}</h1>
-              <p style="margin:18px 0 0; max-width:520px; font-size:15px; line-height:25px; color:#3f3d39;">{{campaign_intro ?? A quiet edit of new arrivals, everyday staples, and considered details from the store.}}</p>
+              <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">{{campaign_label | escape ?? New in}}</div>
+              <h1 class="email-title" style="margin:14px 0 0; font-size:44px; line-height:48px; font-weight:300; letter-spacing:0.02em;">{{campaign_title | escape ?? Refined pieces for the season}}</h1>
+              <p style="margin:18px 0 0; max-width:520px; font-size:15px; line-height:25px; color:#3f3d39;">{{campaign_intro | escape ?? A quiet edit of new arrivals, everyday staples, and considered details from the store.}}</p>
             </td>
           </tr>
           <tr>
@@ -40,9 +40,9 @@
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f0ec;">
                       <tr>
                         <td style="padding:32px 24px; height:180px; vertical-align:bottom;">
-                          <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">{{feature_one_label ?? Edit 01}}</div>
-                          <h2 style="margin:10px 0 0; font-size:22px; line-height:28px; font-weight:400;">{{feature_one_title ?? New silhouettes}}</h2>
-                          <p style="margin:10px 0 0; font-size:13px; line-height:21px; color:#55514b;">{{feature_one_text ?? Clean lines, easy structure, and pieces made for repeat wear.}}</p>
+                          <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">{{feature_one_label | escape ?? Edit 01}}</div>
+                          <h2 style="margin:10px 0 0; font-size:22px; line-height:28px; font-weight:400;">{{feature_one_title | escape ?? New silhouettes}}</h2>
+                          <p style="margin:10px 0 0; font-size:13px; line-height:21px; color:#55514b;">{{feature_one_text | escape ?? Clean lines, easy structure, and pieces made for repeat wear.}}</p>
                         </td>
                       </tr>
                     </table>
@@ -51,9 +51,9 @@
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f0ec;">
                       <tr>
                         <td style="padding:32px 24px; height:180px; vertical-align:bottom;">
-                          <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">{{feature_two_label ?? Edit 02}}</div>
-                          <h2 style="margin:10px 0 0; font-size:22px; line-height:28px; font-weight:400;">{{feature_two_title ?? Everyday texture}}</h2>
-                          <p style="margin:10px 0 0; font-size:13px; line-height:21px; color:#55514b;">{{feature_two_text ?? Neutral layers, subtle contrast, and soft utility for daily rotation.}}</p>
+                          <div style="font-size:11px; line-height:16px; letter-spacing:0.14em; text-transform:uppercase; color:#77736d;">{{feature_two_label | escape ?? Edit 02}}</div>
+                          <h2 style="margin:10px 0 0; font-size:22px; line-height:28px; font-weight:400;">{{feature_two_title | escape ?? Everyday texture}}</h2>
+                          <p style="margin:10px 0 0; font-size:13px; line-height:21px; color:#55514b;">{{feature_two_text | escape ?? Neutral layers, subtle contrast, and soft utility for daily rotation.}}</p>
                         </td>
                       </tr>
                     </table>
@@ -64,8 +64,8 @@
           </tr>
           <tr>
             <td class="email-pad" style="padding:28px 40px 36px;">
-              <a class="email-button" href="{{primary_cta_url ?? https://example.com}}" style="display:inline-block; background:#111111; color:#ffffff; text-decoration:none; padding:14px 24px; font-size:12px; line-height:16px; letter-spacing:0.12em; text-transform:uppercase;">{{primary_cta_label ?? Shop new arrivals}}</a>
-              <p style="margin:22px 0 0; font-size:12px; line-height:20px; color:#6f6b64;">You are receiving this because you subscribed to updates from {{store_name ?? Shop}}. Plunk will add the marketing unsubscribe footer automatically.</p>
+              {% if primary_cta_url != blank %}<a class="email-button" href="{{primary_cta_url | escape}}" style="display:inline-block; background:#111111; color:#ffffff; text-decoration:none; padding:14px 24px; font-size:12px; line-height:16px; letter-spacing:0.12em; text-transform:uppercase;">{{primary_cta_label | escape ?? Shop new arrivals}}</a>{% endif %}
+              <p style="margin:22px 0 0; font-size:12px; line-height:20px; color:#6f6b64;">You are receiving this because you subscribed to updates from {{store_name | escape ?? Shop}}. Plunk will add the marketing unsubscribe footer automatically.</p>
             </td>
           </tr>
         </table>
