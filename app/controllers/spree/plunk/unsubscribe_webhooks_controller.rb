@@ -65,7 +65,7 @@ module Spree
           email: payload.dig('contact', 'email') || payload['email'],
           workflow_id: payload.dig('workflow', 'id'),
           workflow_name: payload.dig('workflow', 'name'),
-          execution_id: payload.dig('execution', 'id'),
+          execution_id: payload.dig('execution', 'id') || payload['event_id'] || payload['delivery_id'],
           webhook_result: result&.value
         }.compact
       end

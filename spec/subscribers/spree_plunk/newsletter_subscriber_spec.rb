@@ -61,4 +61,18 @@ RSpec.describe SpreePlunk::NewsletterSubscriber do
       payload
     )
   end
+
+  it 'does not send another store subscription to the default store integration' do
+    other_store = create(:store)
+    newsletter_subscriber = create(:newsletter_subscriber, :verified, store: other_store)
+    event = Spree::Event.new(
+      name: 'newsletter_subscriber.verified',
+      store_id: other_store.id,
+      payload: { 'id' => newsletter_subscriber.to_param }
+    )
+
+    expect {
+      subscriber.send(:handle_subscriber_verified, event)
+    }.not_to have_enqueued_job(SpreePlunk::SubscribeJob)
+  end
 end

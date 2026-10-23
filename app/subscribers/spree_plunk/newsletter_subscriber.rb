@@ -9,20 +9,23 @@ module SpreePlunk
     private
 
     def handle_subscriber_created(event)
-      subscriber = find_subscriber(event.payload['id'])
+      subscriber = find_subscriber(event.payload['id'], event)
       return unless subscriber
 
-      integration = plunk_integration(event)
+      integration = plunk_integration(event, store: subscriber.store)
       return unless integration
 
+      # A newly-created subscriber may still be waiting for double opt-in. Sync
+      # its profile without changing Plunk's subscription state; the verified
+      # event below is the only path that explicitly subscribes it.
       SpreePlunk::UpsertContactJob.perform_later(integration.id, ::Spree::NewsletterSubscriber.name, subscriber.id)
     end
 
     def handle_subscriber_verified(event)
-      subscriber = find_subscriber(event.payload['id'])
+      subscriber = find_subscriber(event.payload['id'], event)
       return unless subscriber
 
-      integration = plunk_integration(event)
+      integration = plunk_integration(event, store: subscriber.store)
       return unless integration
 
       SpreePlunk::SubscribeJob.perform_later(integration.id, subscriber.id)
@@ -53,25 +56,26 @@ module SpreePlunk
       )
     end
 
-    def find_subscriber(value)
+    def find_subscriber(value, event)
       return if value.blank?
 
-      if ::Spree::NewsletterSubscriber.respond_to?(:find_by_param)
-        ::Spree::NewsletterSubscriber.find_by_param(value)
-      elsif ::Spree::NewsletterSubscriber.respond_to?(:find_by_prefix_id)
-        ::Spree::NewsletterSubscriber.find_by_prefix_id(value)
-      else
-        ::Spree::NewsletterSubscriber.find_by(id: value)
-      end
+      scope = ::Spree::NewsletterSubscriber.all
+      store = event_store(event)
+      scope = scope.for_store(store) if store
+      scope.find_by_param(value)
     end
 
-    def plunk_integration(event)
-      [event.store_id.presence, ::Spree::Store.default&.id].compact.uniq.each do |store_id|
-        integration = ::Spree::Integrations::Plunk.find_by(store_id: store_id)
-        return integration if integration
-      end
+    def plunk_integration(event, store: nil)
+      store_id = store&.id || event_store(event)&.id
+      return ::Spree::Integrations::Plunk.active.find_by(store_id: store_id) if store_id.present?
 
-      nil
+      default_store = ::Spree::Store.default
+      ::Spree::Integrations::Plunk.active.find_by(store_id: default_store.id) if default_store
+    end
+
+    def event_store(event)
+      ::Spree::Store.find_by_param(event.payload['store_id']) ||
+        ::Spree::Store.find_by(id: event.store_id)
     end
   end
 end

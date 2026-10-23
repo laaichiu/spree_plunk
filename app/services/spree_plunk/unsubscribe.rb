@@ -5,9 +5,12 @@ module SpreePlunk
     def call(plunk_integration:, email:)
       return noop_result('missing_email') if email.blank?
 
-      user = ::Spree.user_class.find_by(email: email)
+      normalized_email = email.to_s.strip.downcase
+      customer = ::Spree.customer_class.where(
+        ::Spree.customer_class.arel_table[:email].lower.eq(normalized_email)
+      ).first
       payload = ContactPresenter.new(
-        user: user,
+        customer: customer,
         email: email,
         store: plunk_integration.store
       ).call(subscribed: false)

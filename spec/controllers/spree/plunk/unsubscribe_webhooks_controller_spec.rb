@@ -57,7 +57,7 @@ RSpec.describe Spree::Plunk::UnsubscribeWebhooksController, type: :controller do
     end
 
     it 'acknowledges a valid subscribe payload and restores the local subscriber state' do
-      user = create(:user, email: 'newsletter@example.com', accepts_email_marketing: false)
+      user = create(:customer, email: 'newsletter@example.com', accepts_email_marketing: false)
       request.headers['Authorization'] = 'Bearer whsec_test'
 
       post :create, params: {

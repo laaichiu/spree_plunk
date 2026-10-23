@@ -1,7 +1,7 @@
 module SpreePlunk
   class SubscribeJob < BaseJob
     def perform(plunk_integration_id, subscriber_id)
-      plunk_integration = ::Spree::Integrations::Plunk.find_by(id: plunk_integration_id)
+      plunk_integration = find_active_plunk_integration(plunk_integration_id)
       return unless plunk_integration
 
       subscriber = ::Spree::NewsletterSubscriber.find_by(id: subscriber_id)

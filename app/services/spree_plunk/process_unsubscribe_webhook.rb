@@ -1,6 +1,3 @@
-require 'digest'
-require 'json'
-
 module SpreePlunk
   class ProcessUnsubscribeWebhook < Base
     REPLAY_CACHE_NAMESPACE = 'spree_plunk:subscription_webhook'.freeze
@@ -13,27 +10,32 @@ module SpreePlunk
     end
 
     def call(plunk_integration:, payload:)
+      return noop_result('integration_inactive') unless plunk_integration&.active?
       return noop_result('webhook_disabled') unless plunk_integration&.preferred_unsubscribe_webhook_enabled
 
       normalized_payload = normalize_payload(payload)
+      return noop_result('temporary_suppression') if temporary_suppression?(normalized_payload)
+
       subscribed = resolved_subscription_state(normalized_payload)
       return noop_result('unsupported_payload') if subscribed.nil?
+      return noop_result('spree_confirmation_required') if subscribed
 
       email = resolved_email(normalized_payload)
       return noop_result('missing_email') if email.blank?
 
-      delivery_cache_key = replay_cache_key(plunk_integration: plunk_integration, payload: normalized_payload)
-      return noop_result('duplicate_delivery') unless claim_delivery!(delivery_cache_key)
+      delivery_id = replay_identifier(normalized_payload)
+      if delivery_id.present?
+        delivery_cache_key = replay_cache_key(plunk_integration: plunk_integration, delivery_id: delivery_id)
+      end
+      return noop_result('duplicate_delivery') if delivery_cache_key && !claim_delivery!(delivery_cache_key)
 
-      result = local_writeback_service(subscribed).call(email: email)
-      release_delivery!(delivery_cache_key) if result.failure?
+      result = SpreePlunk::ApplyLocalUnsubscribe.call(email: email, store: plunk_integration.store)
+      release_delivery!(delivery_cache_key) if delivery_cache_key && result.failure?
 
       result
     end
 
     private
-
-    BOOLEAN = ActiveModel::Type::Boolean.new
 
     def normalize_payload(payload)
       payload.to_h.deep_stringify_keys
@@ -42,7 +44,23 @@ module SpreePlunk
     def resolved_subscription_state(payload)
       explicit_value = payload.dig('contact', 'subscribed')
       explicit_value = payload['subscribed'] if explicit_value.nil? && payload.key?('subscribed')
-      return BOOLEAN.cast(explicit_value) unless explicit_value.nil?
+      unless explicit_value.nil?
+        case explicit_value
+        when true, 1, '1'
+          return true
+        when false, 0, '0'
+          return false
+        when String
+          case explicit_value.strip.downcase(:ascii)
+          when 'true'
+            return true
+          when 'false'
+            return false
+          end
+        end
+
+        return
+      end
 
       case event_name(payload)
       when 'contact.subscribed'
@@ -50,6 +68,17 @@ module SpreePlunk
       when 'contact.unsubscribed'
         false
       end
+    end
+
+    def temporary_suppression?(payload)
+      %w[snooze snooze_expired].include?(event_reason(payload))
+    end
+
+    def event_reason(payload)
+      payload.dig('event', 'reason').presence ||
+        payload.dig('event', 'eventData', 'reason').presence ||
+        payload.dig('event_data', 'reason').presence ||
+        payload['reason'].presence
     end
 
     def event_name(payload)
@@ -66,11 +95,11 @@ module SpreePlunk
       value.to_s.strip.downcase.presence
     end
 
-    def replay_cache_key(plunk_integration:, payload:)
+    def replay_cache_key(plunk_integration:, delivery_id:)
       [
         REPLAY_CACHE_NAMESPACE,
         plunk_integration.id,
-        replay_identifier(payload)
+        delivery_id
       ].join(':')
     end
 
@@ -78,20 +107,13 @@ module SpreePlunk
       execution_id = payload.dig('execution', 'id').presence
       return "execution:#{execution_id}" if execution_id
 
-      "digest:#{Digest::SHA256.hexdigest(JSON.generate(canonicalize(payload)))}"
-    end
+      event_id = payload.dig('event', 'id').presence ||
+                 payload.dig('event', 'event_id').presence ||
+                 payload['event_id'].presence
+      return "event:#{event_id}" if event_id
 
-    def canonicalize(value)
-      case value
-      when Hash
-        value.keys.sort.each_with_object({}) do |key, normalized|
-          normalized[key] = canonicalize(value[key])
-        end
-      when Array
-        value.map { |item| canonicalize(item) }
-      else
-        value
-      end
+      delivery_id = payload['delivery_id'].presence
+      "delivery:#{delivery_id}" if delivery_id
     end
 
     def claim_delivery!(cache_key)
@@ -104,10 +126,6 @@ module SpreePlunk
 
     def replay_cache
       self.class.replay_cache_store
-    end
-
-    def local_writeback_service(subscribed)
-      subscribed ? SpreePlunk::ApplyLocalSubscribe : SpreePlunk::ApplyLocalUnsubscribe
     end
   end
 end

@@ -20,7 +20,7 @@ RSpec.describe SpreePlunk::ProcessUnsubscribeWebhook do
 
   it 'delegates unsubscribe application through the local service' do
     expect(SpreePlunk::ApplyLocalUnsubscribe).to receive(:call)
-      .with(email: 'newsletter@example.com')
+      .with(email: 'newsletter@example.com', store: store)
       .and_return(Spree::ServiceModule::Result.new(true, { unsubscribed: true }))
 
     result = described_class.call(
@@ -31,17 +31,15 @@ RSpec.describe SpreePlunk::ProcessUnsubscribeWebhook do
     expect(result).to be_success
   end
 
-  it 'delegates subscribe application through the local service' do
-    expect(SpreePlunk::ApplyLocalSubscribe).to receive(:call)
-      .with(email: 'newsletter@example.com')
-      .and_return(Spree::ServiceModule::Result.new(true, { subscribed: true }))
+  it 'does not treat Plunk subscription state as Spree double opt-in confirmation' do
+    expect(SpreePlunk::ApplyLocalUnsubscribe).not_to receive(:call)
 
     result = described_class.call(
       plunk_integration: integration,
       payload: { contact: { email: 'newsletter@example.com', subscribed: true } }
     )
 
-    expect(result).to be_success
+    expect(result.value).to include(skipped: true, reason: 'spree_confirmation_required')
   end
 
   it 'accepts a custom event-name payload when it explicitly identifies contact.unsubscribed' do
@@ -58,13 +56,12 @@ RSpec.describe SpreePlunk::ProcessUnsubscribeWebhook do
 
     aggregate_failures do
       expect(result).to be_success
-      expect(SpreePlunk::ApplyLocalUnsubscribe).to have_received(:call).with(email: 'newsletter@example.com')
+      expect(SpreePlunk::ApplyLocalUnsubscribe).to have_received(:call).with(email: 'newsletter@example.com', store: store)
     end
   end
 
-  it 'accepts a custom event-name payload when it explicitly identifies contact.subscribed' do
-    allow(SpreePlunk::ApplyLocalSubscribe).to receive(:call)
-      .and_return(Spree::ServiceModule::Result.new(true, { subscribed: true }))
+  it 'ignores the contact.subscribed event and requires confirmation through Spree' do
+    expect(SpreePlunk::ApplyLocalUnsubscribe).not_to receive(:call)
 
     result = described_class.call(
       plunk_integration: integration,
@@ -76,8 +73,17 @@ RSpec.describe SpreePlunk::ProcessUnsubscribeWebhook do
 
     aggregate_failures do
       expect(result).to be_success
-      expect(SpreePlunk::ApplyLocalSubscribe).to have_received(:call).with(email: 'newsletter@example.com')
+      expect(result.value).to include(skipped: true, reason: 'spree_confirmation_required')
     end
+  end
+
+  it 'rejects unrecognized subscription-state values instead of casting them to true' do
+    result = described_class.call(
+      plunk_integration: integration,
+      payload: { contact: { email: 'newsletter@example.com', subscribed: 'enabled' } }
+    )
+
+    expect(result.value).to include(skipped: true, reason: 'unsupported_payload')
   end
 
   it 'no-ops when the payload does not prove contact subscription semantics' do
@@ -118,6 +124,17 @@ RSpec.describe SpreePlunk::ProcessUnsubscribeWebhook do
     expect(result.value).to include(skipped: true, reason: 'webhook_disabled')
   end
 
+  it 'no-ops when the integration has been deactivated after the webhook was queued' do
+    integration.update!(active: false)
+
+    result = described_class.call(
+      plunk_integration: integration,
+      payload: { contact: { email: 'newsletter@example.com', subscribed: false } }
+    )
+
+    expect(result.value).to include(skipped: true, reason: 'integration_inactive')
+  end
+
   it 'suppresses duplicate deliveries that reuse the same execution id' do
     allow(SpreePlunk::ApplyLocalUnsubscribe).to receive(:call)
       .and_return(Spree::ServiceModule::Result.new(true, { unsubscribed: true }))
@@ -137,7 +154,7 @@ RSpec.describe SpreePlunk::ProcessUnsubscribeWebhook do
     end
   end
 
-  it 'falls back to a payload digest when the webhook does not include an execution id' do
+  it 'does not content-dedupe separate deliveries when no unique id is present' do
     allow(SpreePlunk::ApplyLocalUnsubscribe).to receive(:call)
       .and_return(Spree::ServiceModule::Result.new(true, { unsubscribed: true }))
 
@@ -152,8 +169,8 @@ RSpec.describe SpreePlunk::ProcessUnsubscribeWebhook do
 
     aggregate_failures do
       expect(first_result).to be_success
-      expect(second_result.value).to include(skipped: true, reason: 'duplicate_delivery')
-      expect(SpreePlunk::ApplyLocalUnsubscribe).to have_received(:call).once
+      expect(second_result).to be_success
+      expect(SpreePlunk::ApplyLocalUnsubscribe).to have_received(:call).twice
     end
   end
 

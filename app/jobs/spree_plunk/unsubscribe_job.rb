@@ -1,7 +1,7 @@
 module SpreePlunk
   class UnsubscribeJob < BaseJob
     def perform(plunk_integration_id, email)
-      plunk_integration = ::Spree::Integrations::Plunk.find_by(id: plunk_integration_id)
+      plunk_integration = find_active_plunk_integration(plunk_integration_id)
       return unless plunk_integration
       return if email.blank?
 
