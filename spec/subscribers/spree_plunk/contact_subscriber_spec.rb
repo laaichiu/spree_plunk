@@ -68,7 +68,7 @@ RSpec.describe SpreePlunk::ContactSubscriber do
       store: store
     )
     event = Spree::Event.new(
-      name: SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT,
+      name: SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED,
       store_id: store.id,
       payload: { 'customer_id' => customer.to_param, 'store_id' => store.to_param }
     )
@@ -83,7 +83,7 @@ RSpec.describe SpreePlunk::ContactSubscriber do
     aggregate_failures do
       expect(Spree::NewsletterSubscriber.exists?(local_subscriber.id)).to be(false)
       expect(Spree::NewsletterSubscriber.exists?(other_subscriber.id)).to be(false)
-      expect(Spree::Events.catalog.find(SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT).webhook?).to be(false)
+      expect(Spree::Events.catalog.find(SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED).webhook?).to be(false)
       expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UnsubscribeJob }.map { |job| job[:args] }).to contain_exactly(
         [integration.id, customer.email],
         [other_integration.id, customer.email]
@@ -120,7 +120,7 @@ RSpec.describe SpreePlunk::ContactSubscriber do
     other_integration = create(:plunk_integration, store: other_store)
     create(:newsletter_subscriber, :verified, email: customer.email, customer: customer, store: other_store)
     event = Spree::Event.new(
-      name: SpreePlunk::CustomerDecorator::MARKETING_CONSENT_CHANGED_EVENT,
+      name: SpreePlunk::InternalEventNames::CUSTOMER_MARKETING_CONSENT_CHANGED,
       store_id: store.id,
       payload: {
         'customer_id' => customer.to_param,

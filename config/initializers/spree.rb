@@ -1,5 +1,4 @@
 Rails.application.config.after_initialize do
-  SpreePlunk::CustomerDecorator.install!
   Spree.integrations << 'Spree::Integrations::Plunk'
   Spree::Cart.publishes_events(
     'checkout.email_entered',

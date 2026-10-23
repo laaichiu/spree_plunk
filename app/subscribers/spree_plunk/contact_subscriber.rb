@@ -1,14 +1,15 @@
 module SpreePlunk
   class ContactSubscriber < Spree::Subscriber
-    subscribes_to 'user.created', 'spree_plunk.customer_contact_changed', 'spree_plunk.customer_address_changed',
-                  SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT,
-                  SpreePlunk::CustomerDecorator::MARKETING_CONSENT_CHANGED_EVENT, async: false
+    subscribes_to 'user.created', SpreePlunk::InternalEventNames::CUSTOMER_CONTACT_CHANGED,
+                  SpreePlunk::InternalEventNames::CUSTOMER_ADDRESS_CHANGED,
+                  SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED,
+                  SpreePlunk::InternalEventNames::CUSTOMER_MARKETING_CONSENT_CHANGED, async: false
 
     on 'user.created', :handle_customer_event
-    on 'spree_plunk.customer_contact_changed', :handle_customer_profile_changed
-    on 'spree_plunk.customer_address_changed', :handle_customer_address_changed
-    on SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT, :handle_customer_email_changed
-    on SpreePlunk::CustomerDecorator::MARKETING_CONSENT_CHANGED_EVENT, :handle_customer_marketing_consent_changed
+    on SpreePlunk::InternalEventNames::CUSTOMER_CONTACT_CHANGED, :handle_customer_profile_changed
+    on SpreePlunk::InternalEventNames::CUSTOMER_ADDRESS_CHANGED, :handle_customer_address_changed
+    on SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED, :handle_customer_email_changed
+    on SpreePlunk::InternalEventNames::CUSTOMER_MARKETING_CONSENT_CHANGED, :handle_customer_marketing_consent_changed
 
     private
 

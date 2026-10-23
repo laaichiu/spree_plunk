@@ -15,7 +15,7 @@ RSpec.describe Spree::Address, events: true do
     address = customer.bill_address || customer.ship_address
     received_event = nil
 
-    Spree::Events.subscribe(SpreePlunk::AddressDecorator::CUSTOMER_ADDRESS_CHANGED_EVENT, async: false) do |event|
+    Spree::Events.subscribe(SpreePlunk::InternalEventNames::CUSTOMER_ADDRESS_CHANGED, async: false) do |event|
       received_event = event
     end
     Spree::Events.activate!
@@ -27,6 +27,6 @@ RSpec.describe Spree::Address, events: true do
       'customer_id' => customer.prefixed_id,
       'store_id' => store.to_param
     )
-    expect(Spree::Events.catalog.find(SpreePlunk::AddressDecorator::CUSTOMER_ADDRESS_CHANGED_EVENT).webhook?).to be(false)
+    expect(Spree::Events.catalog.find(SpreePlunk::InternalEventNames::CUSTOMER_ADDRESS_CHANGED).webhook?).to be(false)
   end
 end

@@ -1,9 +1,5 @@
 module SpreePlunk
   module CustomerDecorator
-    EMAIL_CHANGED_EVENT = 'spree_plunk.customer_email_changed'.freeze
-    MARKETING_CONSENT_CHANGED_EVENT = 'spree_plunk.customer_marketing_consent_changed'.freeze
-    CONTACT_CHANGED_EVENT = 'spree_plunk.customer_contact_changed'.freeze
-
     def self.install!
       customer_class = ::Spree.customer_class
       return unless customer_class
@@ -13,9 +9,9 @@ module SpreePlunk
     end
 
     def self.prepended(base)
-      base.publishes_event EMAIL_CHANGED_EVENT, webhook: false
-      base.publishes_event MARKETING_CONSENT_CHANGED_EVENT, webhook: false
-      base.publishes_event CONTACT_CHANGED_EVENT, webhook: false
+      base.publishes_event InternalEventNames::CUSTOMER_EMAIL_CHANGED, webhook: false
+      base.publishes_event InternalEventNames::CUSTOMER_MARKETING_CONSENT_CHANGED, webhook: false
+      base.publishes_event InternalEventNames::CUSTOMER_CONTACT_CHANGED, webhook: false
       base.before_validation :capture_spree_plunk_event_store
       base.before_validation :reset_marketing_consent_for_new_email
       base.after_commit :publish_spree_plunk_email_changed, on: :update
@@ -52,7 +48,7 @@ module SpreePlunk
 
       ::Spree::Current.with_store(store) do
         publish_event(
-          EMAIL_CHANGED_EVENT,
+          InternalEventNames::CUSTOMER_EMAIL_CHANGED,
           {
             'customer_id' => prefixed_id,
             'store_id' => store.to_param
@@ -72,7 +68,7 @@ module SpreePlunk
 
       ::Spree::Current.with_store(store) do
         publish_event(
-          MARKETING_CONSENT_CHANGED_EVENT,
+          InternalEventNames::CUSTOMER_MARKETING_CONSENT_CHANGED,
           {
             'customer_id' => prefixed_id,
             'store_id' => store.to_param,
@@ -96,7 +92,7 @@ module SpreePlunk
 
       ::Spree::Current.with_store(store) do
         publish_event(
-          CONTACT_CHANGED_EVENT,
+          InternalEventNames::CUSTOMER_CONTACT_CHANGED,
           {
             'customer_id' => prefixed_id,
             'store_id' => store.to_param

@@ -14,7 +14,7 @@ RSpec.describe Spree.customer_class, events: true do
     customer = create(:customer, email: 'old@example.com', accepts_email_marketing: true)
     received_event = nil
 
-    Spree::Events.subscribe(SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT, async: false) do |event|
+    Spree::Events.subscribe(SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED, async: false) do |event|
       received_event = event
     end
     Spree::Events.activate!
@@ -30,7 +30,7 @@ RSpec.describe Spree.customer_class, events: true do
         'store_id' => store.to_param
       )
       expect(received_event.payload.values).not_to include('old@example.com', 'new@example.com')
-      expect(Spree::Events.catalog.find(SpreePlunk::CustomerDecorator::EMAIL_CHANGED_EVENT).webhook?).to be(false)
+      expect(Spree::Events.catalog.find(SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED).webhook?).to be(false)
     end
   end
 

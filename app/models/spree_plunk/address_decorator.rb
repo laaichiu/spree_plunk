@@ -1,9 +1,7 @@
 module SpreePlunk
   module AddressDecorator
-    CUSTOMER_ADDRESS_CHANGED_EVENT = 'spree_plunk.customer_address_changed'.freeze
-
     def self.prepended(base)
-      base.publishes_event CUSTOMER_ADDRESS_CHANGED_EVENT, webhook: false
+      base.publishes_event InternalEventNames::CUSTOMER_ADDRESS_CHANGED, webhook: false
       base.before_validation :capture_spree_plunk_event_store
       base.before_update :capture_spree_plunk_previous_customer_owner
       base.before_destroy :capture_spree_plunk_previous_customer_owner
@@ -34,7 +32,7 @@ module SpreePlunk
         store = ::Spree::Store.find_by(id: @spree_plunk_event_store_id) || ::Spree::Store.default
         ::Spree::Current.with_store(store) do
           publish_event(
-            CUSTOMER_ADDRESS_CHANGED_EVENT,
+            InternalEventNames::CUSTOMER_ADDRESS_CHANGED,
             {
               'customer_id' => customer.prefixed_id,
               'store_id' => store&.to_param

@@ -1,5 +1,6 @@
 require 'spree_core'
 require 'spree_plunk/configuration'
+require 'spree_plunk/internal_event_names'
 require 'spree_plunk/engine'
 require 'spree_plunk/event_names'
 require 'spree_plunk/sync_error'
