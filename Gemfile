@@ -1,19 +1,14 @@
 source 'https://rubygems.org'
 
-git_source(:github) do |repo_name|
-  repo_name = "#{repo_name}/#{repo_name}" unless repo_name.include?('/')
-  "https://github.com/#{repo_name}.git"
-end
-
 gem 'rails-controller-testing'
 
-spree_opts = if ENV['SPREE_PATH']
-  { path: ENV['SPREE_PATH'] }
+# Keep the default bundle within the supported Spree 6.0 line; use SPREE_PATH to
+# audit the extension against a local Spree checkout.
+if ENV['SPREE_PATH']
+  gem 'spree', path: ENV['SPREE_PATH'], glob: 'spree/**/*.gemspec'
 else
-  { github: 'spree/spree', branch: 'main', glob: 'spree/**/*.gemspec' }
+  gem 'spree', '~> 6.0.0'
 end
-
-gem 'spree', spree_opts
 
 gem 'spree_dev_tools', '1.0.0.beta2'
 gem 'spree_plunk', path: '.'
