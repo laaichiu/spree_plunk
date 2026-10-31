@@ -25,6 +25,13 @@ For transactional sends, configure the sender email and name in the Spree Plunk 
 | Fulfillment Template ID | Transactional | Spree Fulfillment Fulfilled | `Your {{store_name ?? Shop}} order {{order_number}} has shipped` | [`transactional/fulfillment-fulfilled.html`](transactional/fulfillment-fulfilled.html) |
 | Return Refund Template ID | Transactional | Spree Return Refunded | `Your {{store_name ?? Shop}} refund for order {{order_number}}` | [`transactional/return-refunded.html`](transactional/return-refunded.html) |
 | Store Owner Notification Template ID | Transactional | Spree Store Owner Notification | `New order for {{store_name ?? Shop}}` | [`transactional/store-owner-notification.html`](transactional/store-owner-notification.html) |
+| Digital Download Template ID | Transactional | Spree Digital Downloads Ready | `Your {{store_name ?? Shop}} order downloads are ready` | [`transactional/digital-downloads-ready.html`](transactional/digital-downloads-ready.html) |
+| Company Invitation Template ID | Transactional | Spree Company Invitation | `You're invited to join {{company.name}}` | [`transactional/company-invitation.html`](transactional/company-invitation.html) |
+| Data Request Confirmation Template ID | Transactional | Spree Data Request Confirmation | `Confirm your {{store_name ?? Shop}} data request` | [`transactional/data-request-confirmation.html`](transactional/data-request-confirmation.html) |
+| Data Export Ready Template ID | Transactional | Spree Data Export Ready | `Your {{store_name ?? Shop}} data export is ready` | [`transactional/data-export-ready.html`](transactional/data-export-ready.html) |
+| Seller Approved Template ID | Transactional | Spree Seller Approved | `Your seller account with {{store_name ?? Shop}} is approved` | [`transactional/seller-approved.html`](transactional/seller-approved.html) |
+| Seller Suspended Template ID | Transactional | Spree Seller Suspended | `Your seller account with {{store_name ?? Shop}} is suspended` | [`transactional/seller-suspended.html`](transactional/seller-suspended.html) |
+| Seller Rejected Template ID | Transactional | Spree Seller Rejected | `Your seller application to {{store_name ?? Shop}} was declined` | [`transactional/seller-rejected.html`](transactional/seller-rejected.html) |
 
 The store-owner notification goes to the store's configured new-order notification address. It is an operational email, not a customer receipt.
 
@@ -39,6 +46,11 @@ The store-owner notification goes to the store's configured new-order notificati
 | Fulfillment fulfilled | `store_name`, `order_number`, `customer_name`, `fulfillment_number`, `delivery_method_name`, `tracking`, `fulfillment_items_html`; `tracking_url` is optional |
 | Return refunded | `store_name`, `order_number`, `customer_name`, `return_number`, `refunded_total_display`, `return_items_html`; `store_url` is optional |
 | Store-owner notification | `store_name`, `order_number`, `customer_name`, `customer_email`, `order_total`, `line_items_html`, `totals_html`; `store_url` is optional |
+| Digital downloads ready/resend | `store_name`, `order_number`, `downloads[]` (`filename`, `url`, `expires_at`), `resend` |
+| Company invitation | `store_name`, `company.name`, `accept_url`, `invitation_expires_at` |
+| Data-request confirmation | `store_name`, `kind`, `confirmation_url`, `expires_at` |
+| Data export ready | `store_name`, `download_url`, `expires_at` |
+| Seller approved/suspended/rejected | `store_name`, `seller.name`, `seller.id`, `store_email`; `dashboard_url` is available for approval |
 
 ## Marketing Template
 
@@ -52,7 +64,7 @@ Use Plunk's marketing unsubscribe footer and sending controls. Do not use this t
 
 Plunk renders data values supplied by `spree_plunk` as top-level template variables, such as `{{order_number}}`; use `{{data.order_number}}` only when intentionally addressing the nested data object. Plunk supports Liquid control flow and loops, as well as the legacy `{{variable ?? fallback}}` form used here. The text after `??` is a literal fallback.
 
-The marketing example's `campaign_*`, `feature_*`, and `primary_cta_*` values are sample campaign data. `spree_plunk` does not populate those values; provide them through your Plunk campaign/template setup. The transactional variables above are supplied by `spree_plunk` when it sends the corresponding email type.
+The marketing example's `campaign_*`, `feature_*`, and `primary_cta_*` values are sample campaign data. `spree_plunk` does not populate those values; provide them through your Plunk campaign/template setup. The transactional variables above are supplied by `spree_plunk` when it sends the corresponding email type. Seller lifecycle templates intentionally omit internal review notes and rejection reasons.
 
 These examples use pre-rendered HTML fragments for predictable email-safe markup and simpler templates:
 
