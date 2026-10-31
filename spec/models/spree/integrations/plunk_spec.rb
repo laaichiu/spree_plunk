@@ -21,6 +21,18 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
       expect(entry[:schema]).to include('type' => 'object')
       expect(entry[:schema].dig('properties', 'plunk_secret_api_key', 'type')).to include('string')
       expect(entry[:schema].dig('properties', 'unsubscribe_webhook_authorization_token', 'type')).to include('string')
+      expect(entry[:schema]['properties'].keys).to include(
+        'digital_asset_ready_email_enabled',
+        'digital_asset_ready_template_id',
+        'company_invitation_email_enabled',
+        'company_invitation_template_id',
+        'data_request_confirmation_email_enabled',
+        'data_export_ready_email_enabled',
+        'payment_link_email_enabled',
+        'seller_approved_email_enabled',
+        'seller_suspended_email_enabled',
+        'seller_rejected_email_enabled'
+      )
     end
   end
 

@@ -1,0 +1,11 @@
+---
+subject: "Your {{ store.name }} data export is ready"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Your data export is ready</mj-text>
+    <mj-text mj-class="lead">You can download a copy of the personal data associated with your account.</mj-text>
+    <mj-button href="{{ download_url }}">Download your data</mj-button>
+    {% if expires_at %}<mj-text mj-class="note">This link expires {{ expires_at | date: 'long' }}.</mj-text>{% endif %}
+  </mj-column>
+</mj-section>

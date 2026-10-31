@@ -14,7 +14,7 @@ subject: "Order #{{ order.number }} from {{ store.name }} has shipped"
 <mj-section padding="32px 0 0">
   <mj-column>
     <mj-text mj-class="section-heading" padding="0 0 16px">Items in this shipment</mj-text>
-    {% for item in fulfillment.items %}
+    {% for item in fulfillment.manifest_items %}
       <mj-text align="left" padding="8px 0">{{ item.name }}{% if item.options_text != blank %} — {{ item.options_text }}{% endif %}<br />Quantity: {{ item.quantity }}</mj-text>
     {% endfor %}
   </mj-column>

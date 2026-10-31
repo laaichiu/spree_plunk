@@ -15,10 +15,10 @@ module SpreePlunk
       SpreePlunk::Config = SpreePlunk::Configuration.new
     end
 
-    # Spree 6 owns the editable-template registry and Admin API in core. The
-    # optional spree_emails gem normally registers its customer email views;
-    # register the subset that this integration sends so merchants can edit
-    # them in the dashboard without installing its Action Mailer subscribers.
+    # Spree 6 core owns the editable-template registry and renderer; spree_api
+    # exposes them in the dashboard. The optional spree_emails gem normally
+    # registers its customer email views. Register the customer mail paths
+    # handled here so merchants can edit them without its Action Mailer subscribers.
     initializer 'spree_plunk.editable_email_templates' do
       {
         'spree/order_mailer/confirm_email' => 'SpreePlunk::EmailTemplateSamples::OrderConfirmation',
@@ -27,7 +27,12 @@ module SpreePlunk
         'spree/customer_mailer/password_reset_email' => 'SpreePlunk::EmailTemplateSamples::PasswordReset',
         'spree/newsletter_mailer/email_confirmation' => 'SpreePlunk::EmailTemplateSamples::NewsletterConfirmation',
         'spree/fulfillment_mailer/fulfilled_email' => 'SpreePlunk::EmailTemplateSamples::Fulfillment',
-        'spree/return_mailer/refunded_email' => 'SpreePlunk::EmailTemplateSamples::Return'
+        'spree/return_mailer/refunded_email' => 'SpreePlunk::EmailTemplateSamples::Return',
+        'spree/digital_asset_mailer/files_ready_email' => 'SpreePlunk::EmailTemplateSamples::DigitalAsset',
+        'spree/company_mailer/invitation_email' => 'SpreePlunk::EmailTemplateSamples::CompanyInvitation',
+        'spree/customer_mailer/data_request_confirmation_email' => 'SpreePlunk::EmailTemplateSamples::DataRequestConfirmation',
+        'spree/customer_mailer/data_export_email' => 'SpreePlunk::EmailTemplateSamples::DataExport',
+        'spree/order_mailer/payment_link_email' => 'SpreePlunk::EmailTemplateSamples::PaymentLink'
       }.each do |key, sample|
         Spree.editable_email_templates.register(key, kind: :email, sample: sample)
       end

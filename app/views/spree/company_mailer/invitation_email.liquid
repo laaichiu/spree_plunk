@@ -1,0 +1,11 @@
+---
+subject: "{{ store.name }} invited you to join {{ company.name }}"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">You're invited to join {{ company.name }}</mj-text>
+    <mj-text mj-class="lead">You've been invited to join {{ company.name }} at {{ store.name }}.</mj-text>
+    <mj-button href="{{ accept_url }}">Accept invitation</mj-button>
+    <mj-text mj-class="note">This invitation expires. If you were not expecting it, you can ignore this email.</mj-text>
+  </mj-column>
+</mj-section>

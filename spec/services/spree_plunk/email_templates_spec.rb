@@ -12,6 +12,11 @@ RSpec.describe 'SpreePlunk editable email templates' do
       spree/newsletter_mailer/email_confirmation
       spree/fulfillment_mailer/fulfilled_email
       spree/return_mailer/refunded_email
+      spree/digital_asset_mailer/files_ready_email
+      spree/company_mailer/invitation_email
+      spree/customer_mailer/data_request_confirmation_email
+      spree/customer_mailer/data_export_email
+      spree/order_mailer/payment_link_email
     ]
   end
 
@@ -30,5 +35,14 @@ RSpec.describe 'SpreePlunk editable email templates' do
       expect(rendered.subject).to be_present, "expected #{key} to render a subject"
       expect(rendered.html).to include('<html'), "expected #{key} to render through the Spree email layout"
     end
+  end
+
+  it 'renders fulfillment items from Spree manifest_items in the preview' do
+    rendered = Spree::EmailTemplates::Preview.new(
+      store: store,
+      key: 'spree/fulfillment_mailer/fulfilled_email'
+    ).call
+
+    expect(rendered.html).to include('Everyday T-shirt', 'Navy / M')
   end
 end

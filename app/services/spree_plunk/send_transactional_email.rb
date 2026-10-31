@@ -38,6 +38,43 @@ module SpreePlunk
         presenter: SpreePlunk::ReturnRefundedEmailPresenter,
         template_key: 'spree/return_mailer/refunded_email'
       },
+      TransactionalEmailTypes::DIGITAL_ASSET_READY => {
+        enabled_preference: :preferred_digital_asset_ready_email_enabled,
+        presenter: SpreePlunk::DigitalAssetReadyEmailPresenter,
+        template_key: 'spree/digital_asset_mailer/files_ready_email'
+      },
+      TransactionalEmailTypes::COMPANY_INVITATION => {
+        enabled_preference: :preferred_company_invitation_email_enabled,
+        presenter: SpreePlunk::CompanyInvitationEmailPresenter,
+        template_key: 'spree/company_mailer/invitation_email'
+      },
+      TransactionalEmailTypes::DATA_REQUEST_CONFIRMATION => {
+        enabled_preference: :preferred_data_request_confirmation_email_enabled,
+        presenter: SpreePlunk::DataRequestConfirmationEmailPresenter,
+        template_key: 'spree/customer_mailer/data_request_confirmation_email'
+      },
+      TransactionalEmailTypes::DATA_EXPORT_READY => {
+        enabled_preference: :preferred_data_export_ready_email_enabled,
+        presenter: SpreePlunk::DataExportReadyEmailPresenter,
+        template_key: 'spree/customer_mailer/data_export_email'
+      },
+      TransactionalEmailTypes::PAYMENT_LINK => {
+        enabled_preference: :preferred_payment_link_email_enabled,
+        presenter: SpreePlunk::PaymentLinkEmailPresenter,
+        template_key: 'spree/order_mailer/payment_link_email'
+      },
+      TransactionalEmailTypes::SELLER_APPROVED => {
+        enabled_preference: :preferred_seller_approved_email_enabled,
+        presenter: SpreePlunk::SellerLifecycleEmailPresenter
+      },
+      TransactionalEmailTypes::SELLER_SUSPENDED => {
+        enabled_preference: :preferred_seller_suspended_email_enabled,
+        presenter: SpreePlunk::SellerLifecycleEmailPresenter
+      },
+      TransactionalEmailTypes::SELLER_REJECTED => {
+        enabled_preference: :preferred_seller_rejected_email_enabled,
+        presenter: SpreePlunk::SellerLifecycleEmailPresenter
+      },
       TransactionalEmailTypes::STORE_OWNER_NOTIFICATION => {
         enabled_preference: :preferred_store_owner_notification_email_enabled,
         presenter: SpreePlunk::StoreOwnerNotificationEmailPresenter
@@ -70,6 +107,10 @@ module SpreePlunk
       return failure_result('unknown_email_type', "Unknown Plunk transactional email type: #{email_type.inspect}") unless config
       return noop_result('transactional_email_disabled') unless plunk_integration.preferred_transactional_email_enabled
       return noop_result("#{email_type}_disabled") unless plunk_integration.public_send(config[:enabled_preference])
+      unless transactional_emails_enabled?(plunk_integration, resource, email_type)
+        reason = seller_email_type?(email_type) ? 'seller_transactional_emails_disabled' : 'consumer_transactional_emails_disabled'
+        return noop_result(reason)
+      end
 
       context_result = validate_context(email_type.to_s, resource, event_payload)
       return context_result if context_result
@@ -95,6 +136,23 @@ module SpreePlunk
       mark_order_confirmation_delivered(resource, email_type) if result.success?
       mark_store_owner_notification_delivered(resource, email_type) if result.success?
       result
+    end
+
+    def seller_email_type?(email_type)
+      [
+        TransactionalEmailTypes::SELLER_APPROVED,
+        TransactionalEmailTypes::SELLER_SUSPENDED,
+        TransactionalEmailTypes::SELLER_REJECTED
+      ].include?(email_type.to_s)
+    end
+
+    def transactional_emails_enabled?(plunk_integration, resource, email_type)
+      return true if email_type.to_s == TransactionalEmailTypes::STORE_OWNER_NOTIFICATION
+
+      store = plunk_integration.store || resource_store(resource) || ::Spree::Store.default
+      return store&.prefers_send_seller_transactional_emails? if seller_email_type?(email_type)
+
+      store&.prefers_send_consumer_transactional_emails?
     end
 
     def order_group_resource?(resource)
@@ -165,6 +223,33 @@ module SpreePlunk
         return noop_result('missing_fulfillment') unless resource
       when TransactionalEmailTypes::RETURN_REFUNDED
         return noop_result('missing_return') unless resource
+      when TransactionalEmailTypes::DIGITAL_ASSET_READY
+        return noop_result('missing_order') unless resource.is_a?(::Spree::Order)
+        return noop_result('digital_links_missing') if resource.digital_links.empty?
+        return failure_result('missing_download_host', 'Digital download emails require the store formatted URL.') if resource.store&.formatted_url.blank?
+      when TransactionalEmailTypes::COMPANY_INVITATION
+        return noop_result('missing_company_invitation') unless resource.is_a?(::Spree::CompanyInvitation)
+        return noop_result('company_invitation_not_pending') unless resource.pending?
+        return failure_result('missing_invitation_token', 'Company invitation emails require an invitation token.') if resource.token.blank?
+        return failure_result('missing_storefront_url', 'Company invitation emails require a store storefront URL.') if resource.store&.storefront_url.blank?
+      when TransactionalEmailTypes::DATA_REQUEST_CONFIRMATION
+        return noop_result('missing_data_request') unless resource.is_a?(::Spree::DataRequest)
+        return noop_result('data_request_not_confirmable') unless resource.confirmable?
+        return failure_result('missing_confirmation_token', 'Data-request confirmation emails require a confirmation token.') if event_value(event_payload, :confirmation_token).blank?
+        return failure_result('missing_confirmation_url', 'Data-request confirmation emails require a store storefront URL or approved redirect URL.') if event_value(event_payload, :redirect_url).blank? && resource.store&.storefront_url.blank?
+      when TransactionalEmailTypes::DATA_EXPORT_READY
+        return noop_result('missing_data_request') unless resource.is_a?(::Spree::DataRequest)
+        return noop_result('data_export_not_available') unless resource.access? && resource.downloadable?
+        return failure_result('missing_download_host', 'Data export emails require the store formatted URL.') if resource.store&.formatted_url.blank?
+      when TransactionalEmailTypes::PAYMENT_LINK
+        return noop_result('missing_order') unless resource.is_a?(::Spree::Order)
+        return noop_result('order_not_payable') unless resource.completed_at.nil? && !resource.canceled?
+        return failure_result('missing_order_token', 'Payment-link emails require the order token.') if resource.token.blank?
+        return failure_result('missing_storefront_url', 'Payment-link emails require a store storefront URL.') if resource.store&.storefront_url.blank?
+      when TransactionalEmailTypes::SELLER_APPROVED,
+           TransactionalEmailTypes::SELLER_SUSPENDED,
+           TransactionalEmailTypes::SELLER_REJECTED
+        return noop_result('missing_seller') unless resource.is_a?(::Spree::Seller)
       when TransactionalEmailTypes::STORE_OWNER_NOTIFICATION
         return noop_result('missing_order') unless resource
         return noop_result('store_owner_notification_already_delivered') if resource.store_owner_notification_delivered?
@@ -221,6 +306,8 @@ module SpreePlunk
         resource.owner&.locale
       when ::Spree::Return
         resource.order.locale
+      when ::Spree::CompanyInvitation, ::Spree::DataRequest, ::Spree::Seller
+        resource.store&.default_locale
       end
     end
 

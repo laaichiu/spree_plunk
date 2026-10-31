@@ -35,6 +35,22 @@ module Spree
       preference :fulfillment_fulfilled_template_id, :string
       preference :return_refunded_email_enabled, :boolean, default: false
       preference :return_refunded_template_id, :string
+      preference :digital_asset_ready_email_enabled, :boolean, default: false
+      preference :digital_asset_ready_template_id, :string
+      preference :company_invitation_email_enabled, :boolean, default: false
+      preference :company_invitation_template_id, :string
+      preference :data_request_confirmation_email_enabled, :boolean, default: false
+      preference :data_request_confirmation_template_id, :string
+      preference :data_export_ready_email_enabled, :boolean, default: false
+      preference :data_export_ready_template_id, :string
+      preference :payment_link_email_enabled, :boolean, default: false
+      preference :payment_link_template_id, :string
+      preference :seller_approved_email_enabled, :boolean, default: false
+      preference :seller_approved_template_id, :string
+      preference :seller_suspended_email_enabled, :boolean, default: false
+      preference :seller_suspended_template_id, :string
+      preference :seller_rejected_email_enabled, :boolean, default: false
+      preference :seller_rejected_template_id, :string
       preference :store_owner_notification_email_enabled, :boolean, default: false
       preference :store_owner_notification_template_id, :string
       preference :unsubscribe_webhook_enabled, :boolean, default: false
@@ -56,6 +72,11 @@ module Spree
       validates :preferred_order_cancellation_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
       validates :preferred_fulfillment_fulfilled_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
       validates :preferred_return_refunded_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
+      validates :preferred_digital_asset_ready_template_id, :preferred_company_invitation_template_id,
+                :preferred_data_request_confirmation_template_id, :preferred_data_export_ready_template_id,
+                :preferred_payment_link_template_id, :preferred_seller_approved_template_id,
+                :preferred_seller_suspended_template_id, :preferred_seller_rejected_template_id,
+                length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
       validates :preferred_store_owner_notification_template_id, length: { maximum: MAX_TEMPLATE_ID_LENGTH }, allow_blank: true
 
       validate :validate_plunk_base_url
@@ -181,6 +202,14 @@ module Spree
         self.preferred_order_cancellation_template_id = normalize_string(preferred_order_cancellation_template_id)
         self.preferred_fulfillment_fulfilled_template_id = normalize_string(preferred_fulfillment_fulfilled_template_id)
         self.preferred_return_refunded_template_id = normalize_string(preferred_return_refunded_template_id)
+        self.preferred_digital_asset_ready_template_id = normalize_string(preferred_digital_asset_ready_template_id)
+        self.preferred_company_invitation_template_id = normalize_string(preferred_company_invitation_template_id)
+        self.preferred_data_request_confirmation_template_id = normalize_string(preferred_data_request_confirmation_template_id)
+        self.preferred_data_export_ready_template_id = normalize_string(preferred_data_export_ready_template_id)
+        self.preferred_payment_link_template_id = normalize_string(preferred_payment_link_template_id)
+        self.preferred_seller_approved_template_id = normalize_string(preferred_seller_approved_template_id)
+        self.preferred_seller_suspended_template_id = normalize_string(preferred_seller_suspended_template_id)
+        self.preferred_seller_rejected_template_id = normalize_string(preferred_seller_rejected_template_id)
         self.preferred_store_owner_notification_template_id = normalize_string(preferred_store_owner_notification_template_id)
       end
 

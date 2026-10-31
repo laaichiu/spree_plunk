@@ -114,6 +114,49 @@ RSpec.describe SpreePlunk::EmailTemplateAssignments do
       )
     end
 
+    it 'maps digital download, invitation, privacy, and payment-link assignments to Spree email variables' do
+      order = create(:order_with_line_items, store: create(:store), email: 'buyer@example.com')
+      downloads = [{ filename: 'manual.pdf', url: 'https://shop.example.com/download/token', expires_at: '2026-11-30T12:00:00Z' }]
+      base_data = {
+        order_number: wrapped('R123'),
+        customer_name: wrapped('Jane Doe'),
+        recipient_email: wrapped('buyer@example.com'),
+        downloads: wrapped(downloads),
+        resend: wrapped(false),
+        company: wrapped({ name: 'Example Company' }),
+        accept_url: wrapped('https://shop.example.com/account/company-invitation?token=invite'),
+        kind: wrapped('access'),
+        confirmation_url: wrapped('https://shop.example.com/data-request?token=confirm'),
+        expires_at: wrapped('2026-11-30T12:00:00Z'),
+        download_url: wrapped('https://shop.example.com/data-export?token=download'),
+        payment_url: wrapped("https://shop.example.com/checkout/#{order.token}/payment")
+      }
+
+      assignments_for = lambda do |email_type|
+        described_class.call(email_type: email_type, payload: { to: 'buyer@example.com', data: base_data }, resource: order)
+      end
+
+      expect(assignments_for.call(SpreePlunk::TransactionalEmailTypes::DIGITAL_ASSET_READY)).to include(
+        downloads: downloads,
+        resend: false
+      )
+      expect(assignments_for.call(SpreePlunk::TransactionalEmailTypes::COMPANY_INVITATION)).to include(
+        company: { name: 'Example Company' },
+        accept_url: 'https://shop.example.com/account/company-invitation?token=invite'
+      )
+      expect(assignments_for.call(SpreePlunk::TransactionalEmailTypes::DATA_REQUEST_CONFIRMATION)).to include(
+        kind: 'access',
+        confirmation_url: 'https://shop.example.com/data-request?token=confirm'
+      )
+      expect(assignments_for.call(SpreePlunk::TransactionalEmailTypes::DATA_EXPORT_READY)).to include(
+        download_url: 'https://shop.example.com/data-export?token=download'
+      )
+      expect(assignments_for.call(SpreePlunk::TransactionalEmailTypes::PAYMENT_LINK)).to include(
+        payment_url: "https://shop.example.com/checkout/#{order.token}/payment",
+        order: include(number: 'R123', email: 'buyer@example.com')
+      )
+    end
+
     it 'maps return item and refund fields to the current Spree 6 names' do
       order = create_fulfilled_order(store: create(:store), customer: create(:customer, email: 'buyer@example.com'))
       return_record = create(:return, order: order, stock_location: order.fulfillments.first.stock_location, status: 'refunded')

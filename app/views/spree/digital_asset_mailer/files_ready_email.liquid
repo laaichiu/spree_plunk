@@ -1,0 +1,15 @@
+---
+subject: "{% if resend %}[Resend] {% endif %}Your {{ store.name }} downloads for order #{{ order.number }} are ready"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Your downloads are ready</mj-text>
+    <mj-text mj-class="greeting">Hello {{ order.customer_name }},</mj-text>
+    <mj-text mj-class="lead">The digital files for order #{{ order.number }} are ready.</mj-text>
+    {% for download in downloads %}
+      <mj-text mj-class="body"><a href="{{ download.url }}">{{ download.filename }}</a>
+        {% if download.expires_at %}<br /><small>Available until {{ download.expires_at | date: 'long' }}</small>{% endif %}
+      </mj-text>
+    {% endfor %}
+  </mj-column>
+</mj-section>

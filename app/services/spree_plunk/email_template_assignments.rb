@@ -26,6 +26,33 @@ module SpreePlunk
         }
       when TransactionalEmailTypes::NEWSLETTER_CONFIRMATION
         { confirmation_url: data[:confirmation_url] || data[:verification_url] }
+      when TransactionalEmailTypes::DIGITAL_ASSET_READY
+        {
+          order: order,
+          downloads: data[:downloads] || [],
+          resend: data[:resend] || false
+        }
+      when TransactionalEmailTypes::COMPANY_INVITATION
+        {
+          company: data[:company] || {},
+          accept_url: data[:accept_url]
+        }
+      when TransactionalEmailTypes::DATA_REQUEST_CONFIRMATION
+        {
+          kind: data[:kind],
+          confirmation_url: data[:confirmation_url],
+          expires_at: data[:expires_at]
+        }
+      when TransactionalEmailTypes::DATA_EXPORT_READY
+        {
+          download_url: data[:download_url],
+          expires_at: data[:expires_at]
+        }
+      when TransactionalEmailTypes::PAYMENT_LINK
+        {
+          order: order,
+          payment_url: data[:payment_url]
+        }
       when TransactionalEmailTypes::FULFILLMENT_FULFILLED
         {
           order: order,

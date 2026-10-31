@@ -9,6 +9,13 @@ module SpreePlunk
                   'order_group.resend_confirmation_email',
                   'fulfillment.fulfilled',
                   'return.refunded',
+                  'order.resend_digital_links_email',
+                  'company_invitation.created',
+                  'data_request.confirmation_requested',
+                  'data_request.completed',
+                  'seller.approved',
+                  'seller.suspended',
+                  'seller.rejected',
                   async: false
 
     on 'customer.password_reset_requested', :handle_password_reset_requested
@@ -20,6 +27,13 @@ module SpreePlunk
     on 'order_group.resend_confirmation_email', :handle_order_group_confirmation_resend
     on 'fulfillment.fulfilled', :handle_fulfillment_fulfilled
     on 'return.refunded', :handle_return_refunded
+    on 'order.resend_digital_links_email', :handle_digital_links_resend
+    on 'company_invitation.created', :handle_company_invitation_created
+    on 'data_request.confirmation_requested', :handle_data_request_confirmation
+    on 'data_request.completed', :handle_data_request_completed
+    on 'seller.approved', :handle_seller_approved
+    on 'seller.suspended', :handle_seller_suspended
+    on 'seller.rejected', :handle_seller_rejected
 
     private
 
@@ -67,6 +81,118 @@ module SpreePlunk
         enqueue_order_completed_confirmation(event, order)
       end
       enqueue_store_owner_notification(event, order)
+      enqueue_digital_asset_email(event, order, resend: false)
+    end
+
+    def handle_digital_links_resend(event)
+      order = find_order(event.payload['id'])
+      return unless order
+
+      enqueue_digital_asset_email(event, order, resend: true)
+    end
+
+    def enqueue_digital_asset_email(event, order, resend:)
+      return if order.digital_links.empty?
+
+      enqueue_email(
+        event,
+        TransactionalEmailTypes::DIGITAL_ASSET_READY,
+        ::Spree::Order.name,
+        order.id,
+        order.email,
+        event.payload.merge('resend' => resend),
+        store: order.store
+      )
+    end
+
+    def handle_company_invitation_created(event)
+      invitation = find_by_prefix_id(::Spree::CompanyInvitation, event.payload['id'])
+      return unless invitation&.pending?
+
+      enqueue_email(
+        event,
+        TransactionalEmailTypes::COMPANY_INVITATION,
+        ::Spree::CompanyInvitation.name,
+        invitation.id,
+        invitation.email,
+        event.payload,
+        store: invitation.store
+      )
+    end
+
+    def handle_data_request_confirmation(event)
+      request = find_by_prefix_id(::Spree::DataRequest, event.payload['id'])
+      return unless request&.confirmable?
+      return if event_value(event.payload, :confirmation_token).blank?
+
+      enqueue_email(
+        event,
+        TransactionalEmailTypes::DATA_REQUEST_CONFIRMATION,
+        ::Spree::DataRequest.name,
+        request.id,
+        request.email,
+        event.payload,
+        store: request.store
+      )
+    end
+
+    def handle_data_request_completed(event)
+      request = find_by_prefix_id(::Spree::DataRequest, event.payload['id'])
+      return unless request&.access? && request.downloadable?
+
+      enqueue_email(
+        event,
+        TransactionalEmailTypes::DATA_EXPORT_READY,
+        ::Spree::DataRequest.name,
+        request.id,
+        request.email,
+        event.payload,
+        store: request.store
+      )
+    end
+
+    def handle_seller_approved(event)
+      enqueue_seller_email(event, TransactionalEmailTypes::SELLER_APPROVED)
+    end
+
+    def handle_seller_suspended(event)
+      enqueue_seller_email(event, TransactionalEmailTypes::SELLER_SUSPENDED)
+    end
+
+    def handle_seller_rejected(event)
+      enqueue_seller_email(event, TransactionalEmailTypes::SELLER_REJECTED)
+    end
+
+    def enqueue_seller_email(event, email_type)
+      seller = find_by_prefix_id(::Spree::Seller, event.payload['id'])
+      return unless seller
+
+      recipients = seller.users.pluck(:email) << seller.contact_email
+      return if recipients.compact_blank.empty?
+
+      enqueue_email(
+        event,
+        email_type,
+        ::Spree::Seller.name,
+        seller.id,
+        nil,
+        event.payload.merge('email_type' => email_type),
+        store: seller.store
+      )
+    end
+
+    def enqueue_email(event, email_type, resource_type, resource_id, email, event_payload, store: nil)
+      integration = plunk_integration(event, store: store)
+      return unless enabled_for?(integration, email_type)
+
+      SpreePlunk::SendTransactionalEmailJob.perform_later(
+        integration.id,
+        email_type,
+        resource_type,
+        resource_id,
+        email,
+        event_payload
+      )
     end
 
     def enqueue_order_completed_confirmation(event, order)
@@ -249,6 +375,12 @@ module SpreePlunk
       ::Spree::Return.find_by_param(value)
     end
 
+    def find_by_prefix_id(klass, value)
+      return if value.blank?
+
+      klass.find_by_prefix_id(value)
+    end
+
     def plunk_integration(event, store: nil, store_id: nil)
       candidate_store_id = store&.id || resolve_store_id(store_id) || event_store(event)&.id
       return ::Spree::Integrations::Plunk.active.find_by(store_id: candidate_store_id) if candidate_store_id.present?
@@ -294,6 +426,22 @@ module SpreePlunk
         integration.preferred_fulfillment_fulfilled_email_enabled
       when TransactionalEmailTypes::RETURN_REFUNDED
         integration.preferred_return_refunded_email_enabled
+      when TransactionalEmailTypes::DIGITAL_ASSET_READY
+        integration.preferred_digital_asset_ready_email_enabled
+      when TransactionalEmailTypes::COMPANY_INVITATION
+        integration.preferred_company_invitation_email_enabled
+      when TransactionalEmailTypes::DATA_REQUEST_CONFIRMATION
+        integration.preferred_data_request_confirmation_email_enabled
+      when TransactionalEmailTypes::DATA_EXPORT_READY
+        integration.preferred_data_export_ready_email_enabled
+      when TransactionalEmailTypes::PAYMENT_LINK
+        integration.preferred_payment_link_email_enabled
+      when TransactionalEmailTypes::SELLER_APPROVED
+        integration.preferred_seller_approved_email_enabled
+      when TransactionalEmailTypes::SELLER_SUSPENDED
+        integration.preferred_seller_suspended_email_enabled
+      when TransactionalEmailTypes::SELLER_REJECTED
+        integration.preferred_seller_rejected_email_enabled
       when TransactionalEmailTypes::STORE_OWNER_NOTIFICATION
         integration.preferred_store_owner_notification_email_enabled
       else

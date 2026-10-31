@@ -1,0 +1,11 @@
+---
+subject: "Payment link for order #{{ order.number }}"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Payment link for order #{{ order.number }}</mj-text>
+    <mj-text mj-class="lead">Complete payment for your {{ store.name }} order.</mj-text>
+    <mj-button href="{{ payment_url }}">Pay for order</mj-button>
+    <mj-text mj-class="note">If the button does not work, copy this link into your browser: <a href="{{ payment_url }}">{{ payment_url }}</a></mj-text>
+  </mj-column>
+</mj-section>

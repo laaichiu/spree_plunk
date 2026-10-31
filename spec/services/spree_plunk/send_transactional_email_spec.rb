@@ -92,6 +92,19 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
     end
   end
 
+  context 'when Spree consumer transactional emails are disabled for the store' do
+    let(:password_reset_enabled) { true }
+
+    before do
+      store.update!(preferred_send_consumer_transactional_emails: false)
+    end
+
+    it 'does not send the customer email through Plunk' do
+      expect(result.value).to include(skipped: true, reason: 'consumer_transactional_emails_disabled')
+      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send')).not_to have_been_made
+    end
+  end
+
   context 'when sending from a template' do
     let(:password_reset_enabled) { true }
     let(:event_payload) do
@@ -298,6 +311,28 @@ RSpec.describe SpreePlunk::SendTransactionalEmail do
         expect(plunk_data_value(body['data'], 'customer_email')).to eq('buyer@example.com')
         true
       }).to have_been_made
+    end
+  end
+
+  context 'when Spree consumer transactional emails are disabled for a store owner notification' do
+    let(:email_type) { SpreePlunk::TransactionalEmailTypes::STORE_OWNER_NOTIFICATION }
+    let(:store_owner_notification_enabled) { true }
+    let(:store) do
+      create(
+        :store,
+        name: 'Example Store',
+        mail_from_address: 'orders@example.com',
+        new_order_notifications_email: 'owner@example.com',
+        preferred_send_consumer_transactional_emails: false
+      )
+    end
+    let(:resource) { create(:completed_order_with_totals, store: store, store_owner_notification_delivered: false) }
+    let(:email) { store.new_order_notifications_email }
+
+    it 'keeps the separate operator notification path available' do
+      expect(result).to be_success
+      expect(result.value).not_to include(skipped: true, reason: 'consumer_transactional_emails_disabled')
+      expect(a_request(:post, 'https://next-api.useplunk.com/v1/send')).to have_been_made.once
     end
   end
 

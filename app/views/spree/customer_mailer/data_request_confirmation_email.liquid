@@ -1,0 +1,12 @@
+---
+subject: "{{ store.name }} data request confirmation"
+---
+<mj-section>
+  <mj-column css-class="hero">
+    <mj-text mj-class="heading">Confirm your data request</mj-text>
+    <mj-text mj-class="lead">Please confirm your {{ kind }} request for {{ store.name }}.</mj-text>
+    <mj-button href="{{ confirmation_url }}">Confirm request</mj-button>
+    {% if expires_at %}<mj-text mj-class="note">This link expires {{ expires_at | date: 'long' }}.</mj-text>{% endif %}
+    <mj-text mj-class="note">If you did not make this request, you can ignore this email.</mj-text>
+  </mj-column>
+</mj-section>
