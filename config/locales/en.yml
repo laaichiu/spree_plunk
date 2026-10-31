@@ -33,6 +33,8 @@ en:
               unable_to_connect: "Unable to connect to Plunk: %{error_message}"
             preferred_plunk_base_url:
               invalid_http_url: must be a valid HTTP(S) URL
+              https_required: must use HTTPS unless the host is localhost or a loopback address
+              userinfo_not_allowed: must not include a username or password
               query_or_fragment_not_allowed: must not include a query string or fragment
               endpoint_path_not_allowed: must be the API base URL, not a specific endpoint path
             preferred_plunk_secret_api_key:

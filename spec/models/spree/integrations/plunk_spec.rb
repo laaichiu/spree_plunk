@@ -271,7 +271,7 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
       stub_request(:post, 'https://next-api.useplunk.com/v1/send')
         .to_return(
           status: 409,
-          body: '{"message":"Idempotency-Key has already been used","details":{"originalStatusCode":500}}',
+          body: '{"success":false,"error":{"code":"IDEMPOTENCY_KEY_REUSED","message":"Idempotency-Key has already been used","statusCode":409,"details":{"originalStatusCode":500}}}',
           headers: { 'Content-Type' => 'application/json' }
         )
 
@@ -291,7 +291,7 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
         .with(headers: { 'Idempotency-Key' => 'active-job-123' })
         .to_return(
           { status: 500, body: '{"message":"unknown delivery state"}' },
-          { status: 409, body: '{"details":{"originalStatusCode":500}}' }
+          { status: 409, body: '{"success":false,"error":{"code":"IDEMPOTENCY_KEY_REUSED","message":"Idempotency-Key has already been used","statusCode":409,"details":{"originalStatusCode":500}}}' }
         )
 
       first_attempt = integration.send_transactional_email(payload, idempotency_key: 'active-job-123')
@@ -309,7 +309,7 @@ RSpec.describe Spree::Integrations::Plunk, type: :model do
       stub_request(:post, 'https://next-api.useplunk.com/v1/send')
         .to_return(
           status: 403,
-          body: '{"code":"INTERNAL_SERVER_ERROR","message":"Domain \"example.com\" is not registered. Please add and verify this domain in your project settings.","statusCode":403}',
+          body: '{"success":false,"error":{"code":"INTERNAL_SERVER_ERROR","message":"Domain \"example.com\" is not registered. Please add and verify this domain in your project settings.","statusCode":403}}',
           headers: { 'Content-Type' => 'application/json' }
         )
 

@@ -1,5 +1,6 @@
 require 'json'
 require 'net/http'
+require 'spree_plunk/plunk/transport_policy'
 require 'uri'
 
 module SpreePlunk
@@ -73,8 +74,13 @@ module SpreePlunk
       end
 
       def http(uri)
+        scheme = uri.scheme.to_s.downcase
+        unless TransportPolicy.valid_uri?(uri)
+          raise ArgumentError, 'Plunk API requests require a host, HTTPS except for localhost or loopback addresses, and no URL credentials.'
+        end
+
         Net::HTTP.new(uri.host, uri.port).tap do |client|
-          client.use_ssl = uri.scheme == 'https'
+          client.use_ssl = scheme == 'https'
           client.open_timeout = open_timeout
           client.read_timeout = read_timeout
         end

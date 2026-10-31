@@ -1,4 +1,6 @@
 require 'base64'
+require 'spree_plunk/plunk/transport_policy'
+require 'uri'
 
 module Spree
   module Integrations
@@ -129,7 +131,9 @@ module Spree
 
         if result.failure? && result.value[:status].to_i == 409 && idempotency_key.present?
           body = result.value[:body]
-          original_status = body.dig('details', 'originalStatusCode') if body.is_a?(Hash)
+          error = response_value(body, :error)
+          details = response_value(error, :details)
+          original_status = response_value(details, :originalStatusCode)
           message = 'Plunk rejected this retry because the idempotency key was already used.'
           message += " The original request returned HTTP #{original_status}; check Plunk delivery logs before resending." if original_status.present?
 
@@ -186,6 +190,12 @@ module Spree
         value.strip.presence
       end
 
+      def response_value(hash, key)
+        return unless hash.is_a?(Hash)
+
+        hash[key.to_s] || hash[key.to_sym]
+      end
+
       def validate_plunk_base_url
         return if preferred_plunk_base_url.blank?
 
@@ -196,6 +206,8 @@ module Spree
           return
         end
 
+        errors.add(:preferred_plunk_base_url, :userinfo_not_allowed) if uri.userinfo.present?
+        errors.add(:preferred_plunk_base_url, :https_required) unless ::SpreePlunk::Plunk::TransportPolicy.valid_transport?(uri)
         errors.add(:preferred_plunk_base_url, :query_or_fragment_not_allowed) if uri.query.present? || uri.fragment.present?
         errors.add(:preferred_plunk_base_url, :endpoint_path_not_allowed) if endpoint_path?(uri.path)
       rescue URI::InvalidURIError
@@ -300,6 +312,7 @@ module Spree
       end
 
       def error_code_for(status:, error_message:)
+        return 'invalid_transport_configuration' if invalid_transport_configuration?(error_message)
         return 'timeout' if timeout_error?(error_message)
         return 'transport_error' if transport_error?(error_message)
         return "http_#{status}" if status.present?
@@ -307,15 +320,24 @@ module Spree
         'unknown_error'
       end
 
+      def invalid_transport_configuration?(message)
+        message.to_s.include?('Plunk API requests require a host')
+      end
+
       def extract_error_message(body)
         case body
         when Hash
           body = body.with_indifferent_access
-          errors = body[:errors]
+          error = body[:error]
+          error = error.with_indifferent_access if error.is_a?(Hash)
+          errors = error.is_a?(Hash) ? error[:errors] : body[:errors]
 
-          body[:error] ||
+          (error[:message] if error.is_a?(Hash)) ||
+            (error if error.is_a?(String)) ||
             body[:message] ||
             (errors.first if errors.is_a?(Array) && errors.first.is_a?(String)) ||
+            (error.dig(:errors, 0, :message) if error.is_a?(Hash)) ||
+            (error.dig(:errors, 0, :detail) if error.is_a?(Hash)) ||
             body.dig(:errors, 0, :message) ||
             body.dig(:errors, 0, :detail) ||
             body.inspect
