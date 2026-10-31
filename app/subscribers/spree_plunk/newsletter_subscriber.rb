@@ -24,6 +24,7 @@ module SpreePlunk
     def handle_subscriber_verified(event)
       subscriber = find_subscriber(event.payload['id'], event)
       return unless subscriber
+      return unless subscriber.verified? && subscriber.accepts_email_marketing
 
       integration = plunk_integration(event, store: subscriber.store)
       return unless integration
@@ -39,6 +40,8 @@ module SpreePlunk
     end
 
     def handle_subscriber_deletion(event)
+      return if SpreePlunk::EventContext.local_unsubscribe?
+
       email = event.payload['email']
       return if email.blank?
 

@@ -3,6 +3,10 @@ module SpreePlunk
     prepend ::Spree::ServiceModule::Base
 
     def call(plunk_integration:, event_name:, resource: nil, email: nil)
+      if newsletter_subscribe_event?(event_name) && !verified_newsletter_subscriber?(resource, plunk_integration)
+        return noop_result('newsletter_subscriber_not_verified')
+      end
+
       resolved_email = email.presence || resolve_email(resource)
       return noop_result('missing_email') if resolved_email.blank?
 
@@ -125,6 +129,17 @@ module SpreePlunk
       when SpreePlunk::EventNames::NEWSLETTER_UNSUBSCRIBED
         false
       end
+    end
+
+    def newsletter_subscribe_event?(event_name)
+      event_name == SpreePlunk::EventNames::NEWSLETTER_SUBSCRIBED
+    end
+
+    def verified_newsletter_subscriber?(resource, plunk_integration)
+      resource.is_a?(::Spree::NewsletterSubscriber) &&
+        resource.verified? &&
+        resource.accepts_email_marketing &&
+        resource.store_id == plunk_integration.store_id
     end
 
     def failure_result(reason, error_message:, retryable:)

@@ -12,7 +12,7 @@ module SpreePlunk
       subscriber_id = subscriber&.id
       customer_updated = false
 
-      ::Spree::Events.disable do
+      SpreePlunk::EventContext.with_local_unsubscribe do
         ::Spree::Current.with_store(store) do
           ActiveRecord::Base.transaction do
             subscriber.destroy!

@@ -34,7 +34,10 @@ RSpec.describe SpreePlunk::ContactSubscriber do
     )
   end
 
-  it 'enqueues contact upsert for the private customer-address change event' do
+  it 'refreshes contacts in the current and subscribed stores after an address change' do
+    other_store = create(:store)
+    other_integration = create(:plunk_integration, store: other_store)
+    create(:newsletter_subscriber, :verified, email: customer.email, customer: customer, store: other_store)
     event = Spree::Event.new(
       name: 'spree_plunk.customer_address_changed',
       store_id: store.id,
@@ -47,6 +50,10 @@ RSpec.describe SpreePlunk::ContactSubscriber do
       integration.id,
       Spree.customer_class.name,
       customer.id
+    ).and have_enqueued_job(SpreePlunk::UpsertContactJob).with(
+      other_integration.id,
+      Spree.customer_class.name,
+      customer.id
     )
   end
 
@@ -56,14 +63,14 @@ RSpec.describe SpreePlunk::ContactSubscriber do
     other_subscriber = create(
       :newsletter_subscriber,
       :verified,
-      email: customer.email,
+      email: 'old@example.com',
       customer: customer,
       store: other_store
     )
     local_subscriber = create(
       :newsletter_subscriber,
       :verified,
-      email: customer.email,
+      email: 'old@example.com',
       customer: customer,
       store: store
     )
@@ -72,12 +79,18 @@ RSpec.describe SpreePlunk::ContactSubscriber do
       store_id: store.id,
       payload: { 'customer_id' => customer.to_param, 'store_id' => store.to_param }
     )
+    clear_enqueued_jobs
 
     Spree::Events.reset!
     Spree::Events.activate!
 
     expect {
-      subscriber.send(:handle_customer_email_changed, event)
+      SpreePlunk::EventContext.with_customer_email_change(
+        customer_id: customer.id,
+        previous_email: 'old@example.com'
+      ) do
+        subscriber.send(:handle_customer_email_changed, event)
+      end
     }.to change { Spree::NewsletterSubscriber.where(customer_id: customer.id).count }.from(2).to(0)
 
     aggregate_failures do
@@ -85,8 +98,8 @@ RSpec.describe SpreePlunk::ContactSubscriber do
       expect(Spree::NewsletterSubscriber.exists?(other_subscriber.id)).to be(false)
       expect(Spree::Events.catalog.find(SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED).webhook?).to be(false)
       expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UnsubscribeJob }.map { |job| job[:args] }).to contain_exactly(
-        [integration.id, customer.email],
-        [other_integration.id, customer.email]
+        [integration.id, 'old@example.com'],
+        [other_integration.id, 'old@example.com']
       )
       expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UpsertContactJob }.map { |job| job[:args] }).to contain_exactly(
         [integration.id, Spree.customer_class.name, customer.id, nil, false],
@@ -112,6 +125,26 @@ RSpec.describe SpreePlunk::ContactSubscriber do
       other_integration.id,
       Spree.customer_class.name,
       customer.id
+    )
+  end
+
+  it 'unsubscribes the previous address for the event store when there is no Spree subscriber row' do
+    event = Spree::Event.new(
+      name: SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED,
+      store_id: store.id,
+      payload: { 'customer_id' => customer.to_param, 'store_id' => store.to_param }
+    )
+    clear_enqueued_jobs
+
+    SpreePlunk::EventContext.with_customer_email_change(
+      customer_id: customer.id,
+      previous_email: 'old@example.com'
+    ) do
+      subscriber.send(:handle_customer_email_changed, event)
+    end
+
+    expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UnsubscribeJob }.map { |job| job[:args] }).to eq(
+      [[integration.id, 'old@example.com']]
     )
   end
 

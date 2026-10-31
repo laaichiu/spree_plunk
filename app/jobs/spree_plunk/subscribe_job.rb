@@ -6,6 +6,8 @@ module SpreePlunk
 
       subscriber = ::Spree::NewsletterSubscriber.find_by(id: subscriber_id)
       return unless subscriber
+      return unless subscriber.verified? && subscriber.accepts_email_marketing
+      return unless subscriber.store_id == plunk_integration.store_id
 
       result = SpreePlunk::Subscribe.call(
         plunk_integration: plunk_integration,

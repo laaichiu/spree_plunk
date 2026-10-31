@@ -35,19 +35,24 @@ module SpreePlunk
       customer = find_record(::Spree.customer_class, event.payload['customer_id'])
       return unless customer
 
-      integration = plunk_integration(event)
-      return unless integration
-
-      SpreePlunk::UpsertContactJob.perform_later(integration.id, ::Spree.customer_class.name, customer.id)
+      plunk_integrations_for_customer(event, customer).each do |integration|
+        SpreePlunk::UpsertContactJob.perform_later(integration.id, ::Spree.customer_class.name, customer.id)
+      end
     end
 
     def handle_customer_email_changed(event)
       customer = find_record(::Spree.customer_class, event.payload['customer_id'])
       return unless customer
+      return unless SpreePlunk::EventContext.claim_customer_email_change_sync(customer.id)
 
       integrations = plunk_integrations_for_customer(event, customer).to_a
+      previous_email = SpreePlunk::EventContext.previous_customer_email(customer.id)
+      subscriber_scope = ::Spree::NewsletterSubscriber.where(customer_id: customer.id)
+      previous_email ||= subscriber_scope.pick(:email)
+      subscribed_store_ids = SpreePlunk::EventContext.customer_email_change_subscriber_store_ids(customer.id)
+      subscribed_store_ids ||= subscriber_scope.distinct.pluck(:store_id)
 
-      ::Spree::NewsletterSubscriber.where(customer_id: customer.id).includes(:store).find_each do |newsletter_subscriber|
+      subscriber_scope.includes(:store).find_each do |newsletter_subscriber|
         store = newsletter_subscriber.store
         next unless store
 
@@ -57,11 +62,15 @@ module SpreePlunk
       end
 
       integrations.each do |integration|
+        if previous_email.present? && !subscribed_store_ids.include?(integration.store_id)
+          SpreePlunk::UnsubscribeJob.perform_later(integration.id, previous_email)
+        end
         SpreePlunk::UpsertContactJob.perform_later(integration.id, ::Spree.customer_class.name, customer.id, nil, false)
       end
     end
 
     def handle_customer_marketing_consent_changed(event)
+      return if SpreePlunk::EventContext.local_unsubscribe?
       return if event.payload['email_changed']
 
       customer = find_record(::Spree.customer_class, event.payload['customer_id'])

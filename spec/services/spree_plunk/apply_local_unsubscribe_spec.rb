@@ -6,7 +6,7 @@ RSpec.describe SpreePlunk::ApplyLocalUnsubscribe do
     clear_performed_jobs
   end
 
-  it 'removes the matching newsletter subscriber and clears customer marketing without re-enqueuing outbound sync jobs' do
+  it 'removes the matching newsletter subscriber and clears customer marketing without echoing to Plunk' do
     user = create(:customer, email: 'newsletter@example.com', accepts_email_marketing: true)
     subscriber = Spree::NewsletterSubscriber.find_by!(email: user.email)
     clear_enqueued_jobs
@@ -33,6 +33,31 @@ RSpec.describe SpreePlunk::ApplyLocalUnsubscribe do
         SpreePlunk::TrackEventJob
       )
     end
+  end
+
+  it 'keeps other Spree listeners active while suppressing only its own Plunk echo' do
+    user = create(:customer, email: 'newsletter@example.com', accepts_email_marketing: true)
+    Spree::NewsletterSubscriber.find_by!(customer_id: user.id)
+    other_listener_called = false
+    Spree::Events.reset!
+    Spree::Events.activate!
+    Spree::Events.subscribe('newsletter_subscriber.deleted', async: false) do
+      other_listener_called = true
+    end
+
+    described_class.call(email: user.email)
+
+    aggregate_failures do
+      expect(other_listener_called).to be(true)
+      expect(enqueued_jobs.map { |job| job[:job] }).not_to include(
+        SpreePlunk::UpsertContactJob,
+        SpreePlunk::SubscribeJob,
+        SpreePlunk::UnsubscribeJob,
+        SpreePlunk::TrackEventJob
+      )
+    end
+  ensure
+    Spree::Events.reset!
   end
 
   it 'does not change customer consent when this store has no newsletter subscriber row' do

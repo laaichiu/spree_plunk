@@ -37,6 +37,18 @@ RSpec.describe SpreePlunk::NewsletterSubscriber do
     )
   end
 
+  it 'does not queue a verified event for a subscriber that is no longer verified' do
+    newsletter_subscriber = create(:newsletter_subscriber, email: 'newsletter@example.com')
+    event = Spree::Event.new(
+      name: 'newsletter_subscriber.verified',
+      payload: { 'id' => newsletter_subscriber.to_param }
+    )
+
+    expect {
+      subscriber.send(:handle_subscriber_verified, event)
+    }.not_to have_enqueued_job(SpreePlunk::SubscribeJob)
+  end
+
   it 'enqueues unsubscribe and event tracking when a subscriber is deleted' do
     payload = {
       'email' => 'newsletter@example.com',

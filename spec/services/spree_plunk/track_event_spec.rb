@@ -15,6 +15,7 @@ RSpec.describe SpreePlunk::TrackEvent do
     instance_double(
       Spree::Integrations::Plunk,
       store: store,
+      store_id: store.id,
       track_event: track_result
     )
   end
@@ -254,7 +255,7 @@ RSpec.describe SpreePlunk::TrackEvent do
 
   context 'when tracking a newsletter subscription event' do
     let(:event_name) { SpreePlunk::EventNames::NEWSLETTER_SUBSCRIBED }
-    let(:resource) { create(:newsletter_subscriber, :verified, email: 'newsletter@example.com') }
+    let(:resource) { create(:newsletter_subscriber, :verified, email: 'newsletter@example.com', store: store) }
 
     it 'upserts the contact as subscribed before tracking' do
       expect(SpreePlunk::UpsertContact).to receive(:call).with(
@@ -268,6 +269,18 @@ RSpec.describe SpreePlunk::TrackEvent do
       expect(plunk_integration).to receive(:track_event).and_return(track_result)
 
       expect(result).to be_success
+    end
+  end
+
+  context 'when tracking a stale newsletter subscription event' do
+    let(:event_name) { SpreePlunk::EventNames::NEWSLETTER_SUBSCRIBED }
+    let(:resource) { create(:newsletter_subscriber, email: 'newsletter@example.com', store: store) }
+
+    it 'does not create or subscribe a Plunk contact' do
+      expect(SpreePlunk::UpsertContact).not_to receive(:call)
+      expect(plunk_integration).not_to receive(:track_event)
+
+      expect(result.value).to include(skipped: true, reason: 'newsletter_subscriber_not_verified')
     end
   end
 

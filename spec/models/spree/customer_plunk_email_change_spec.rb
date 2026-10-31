@@ -30,7 +30,29 @@ RSpec.describe Spree.customer_class, events: true do
         'store_id' => store.to_param
       )
       expect(received_event.payload.values).not_to include('old@example.com', 'new@example.com')
+      expect(SpreePlunk::EventContext.previous_customer_email(customer.id)).to be_nil
       expect(Spree::Events.catalog.find(SpreePlunk::InternalEventNames::CUSTOMER_EMAIL_CHANGED).webhook?).to be(false)
+    end
+  end
+
+  it 'queues unsubscribe for the previous Plunk address on a real customer email change' do
+    store = create(:store)
+    integration = create(:plunk_integration, store: store)
+    customer = create(:customer, email: 'old@example.com', accepts_email_marketing: false)
+    create(:newsletter_subscriber, :verified, email: customer.email, customer: customer, store: store)
+    customer.update_column(:accepts_email_marketing, true)
+    clear_enqueued_jobs
+    Spree::Events.activate!
+
+    Spree::Current.with_store(store) { customer.update!(email: 'new@example.com') }
+
+    aggregate_failures do
+      expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UnsubscribeJob }.map { |job| job[:args] }).to eq(
+        [[integration.id, 'old@example.com']]
+      )
+      expect(enqueued_jobs.select { |job| job[:job] == SpreePlunk::UpsertContactJob }.map { |job| job[:args] }).to eq(
+        [[integration.id, Spree.customer_class.name, customer.id, nil, false]]
+      )
     end
   end
 

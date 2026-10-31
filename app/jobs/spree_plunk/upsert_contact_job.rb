@@ -25,7 +25,7 @@ module SpreePlunk
             plunk_integration: plunk_integration,
             customer: customer,
             address: address,
-            subscribed: subscribed
+            subscribed: customer_subscription_state(customer, plunk_integration.store)
           )
         end
 
@@ -38,6 +38,19 @@ module SpreePlunk
         resource_id: resource_id,
         address_id: address_id
       )
+    end
+
+    # Spree's marketing-consent flag is global to the customer, while Plunk's
+    # subscribed state belongs to the store integration. Only a current,
+    # verified Spree subscription in this store can authorize a Plunk opt-in.
+    # Re-checking here also makes delayed/out-of-order jobs converge on the
+    # current Spree state instead of replaying stale event payloads.
+    def customer_subscription_state(customer, store)
+      customer.accepts_email_marketing? && store.present? &&
+        ::Spree::NewsletterSubscriber.verified.exists?(
+          customer_id: customer.id,
+          store_id: store.id
+        )
     end
   end
 end

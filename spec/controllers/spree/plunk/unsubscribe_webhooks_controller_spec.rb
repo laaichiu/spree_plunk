@@ -56,7 +56,7 @@ RSpec.describe Spree::Plunk::UnsubscribeWebhooksController, type: :controller do
       end
     end
 
-    it 'acknowledges a valid subscribe payload and restores the local subscriber state' do
+    it 'acknowledges a subscribe payload without opting the customer in through Plunk' do
       user = create(:customer, email: 'newsletter@example.com', accepts_email_marketing: false)
       request.headers['Authorization'] = 'Bearer whsec_test'
 
@@ -65,13 +65,10 @@ RSpec.describe Spree::Plunk::UnsubscribeWebhooksController, type: :controller do
         contact: { email: user.email, subscribed: true }
       }, as: :json
 
-      subscriber = Spree::NewsletterSubscriber.find_by(email: user.email)
-
       aggregate_failures do
         expect(response).to have_http_status(:ok)
-        expect(subscriber).to be_present
-        expect(subscriber).to be_verified
-        expect(user.reload.accepts_email_marketing).to be(true)
+        expect(Spree::NewsletterSubscriber.find_by(email: user.email)).to be_nil
+        expect(user.reload.accepts_email_marketing).to be(false)
       end
     end
 

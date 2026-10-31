@@ -37,6 +37,13 @@ module SpreePlunk
       store_id = ::Spree::Current.store&.id
       @spree_plunk_consent_event_store_id = store_id if will_save_change_to_accepts_email_marketing?
       @spree_plunk_contact_event_store_id = store_id
+      if persisted? && will_save_change_to_email? && spree_plunk_email_identity_changed?
+        @spree_plunk_newsletter_store_ids = if ::Spree::Events.lifecycle_enabled?
+          ::Spree::NewsletterSubscriber.where(customer_id: id).distinct.pluck(:store_id)
+        else
+          []
+        end
+      end
     end
 
     def publish_spree_plunk_email_changed
@@ -47,16 +54,23 @@ module SpreePlunk
       return unless store
 
       ::Spree::Current.with_store(store) do
-        publish_event(
-          InternalEventNames::CUSTOMER_EMAIL_CHANGED,
-          {
-            'customer_id' => prefixed_id,
-            'store_id' => store.to_param
-          }
-        )
+        EventContext.with_customer_email_change(
+          customer_id: id,
+          previous_email: change.first,
+          subscriber_store_ids: @spree_plunk_newsletter_store_ids
+        ) do
+          publish_event(
+            InternalEventNames::CUSTOMER_EMAIL_CHANGED,
+            {
+              'customer_id' => prefixed_id,
+              'store_id' => store.to_param
+            }
+          )
+        end
       end
     ensure
       @spree_plunk_email_event_store_id = nil
+      @spree_plunk_newsletter_store_ids = nil
     end
 
     def publish_spree_plunk_marketing_consent_changed
