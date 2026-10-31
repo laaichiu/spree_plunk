@@ -49,6 +49,15 @@ RSpec.describe SpreePlunk::ContactPresenter do
     )
   end
 
+  it 'limits order metrics to the integration store' do
+    create(:completed_order_with_totals, store: store, customer: user, email: user.email)
+    other_store = create(:store)
+    create(:completed_order_with_totals, store: other_store, customer: user, email: user.email)
+
+    expect(payload.dig(:data, :order_count)).to eq(1)
+    expect(payload.dig(:data, :last_order_number)).to eq(user.completed_orders_for_store(store).first.number)
+  end
+
   context 'with a newsletter subscriber' do
     let(:subscriber) do
       instance_double(

@@ -34,6 +34,18 @@ RSpec.describe Spree::LineItem, events: true do
     )
   end
 
+  it 'does not label a placed-order line item as a cart activity' do
+    order = create(:order_with_line_items, store: store, customer: customer, email: customer.email)
+    received_event = nil
+    Spree::Events.subscribe('line_item.created', async: false) { |event| received_event = event }
+    Spree::Events.activate!
+
+    create(:line_item, order: order, cart: nil, product: product, quantity: 1, price: 19.99, currency: 'USD')
+
+    expect(received_event).to be_present
+    expect(received_event.payload).not_to have_key('cart_activity_event')
+  end
+
   it 'publishes a cart-added snapshot when quantity increases' do
     line_item = create(:line_item, cart: cart, order: nil, product: product, quantity: 1, price: 19.99, currency: 'USD')
     received_event = nil

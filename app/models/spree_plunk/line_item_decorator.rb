@@ -31,6 +31,8 @@ module SpreePlunk
     end
 
     def cart_activity_event_name
+      return unless owner.is_a?(::Spree::Cart)
+
       case @_current_event_name
       when "#{event_prefix}.created"
         quantity.to_i.positive? ? 'added' : nil

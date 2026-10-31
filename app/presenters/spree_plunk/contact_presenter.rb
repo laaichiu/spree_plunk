@@ -68,13 +68,19 @@ module SpreePlunk
     end
 
     def order_count
-      customer&.completed_orders&.count
+      store_orders&.count
     end
 
     def last_order
       return unless customer
 
-      @last_order ||= customer.completed_orders.reorder(completed_at: :desc, id: :desc).first
+      @last_order ||= store_orders&.reorder(completed_at: :desc, id: :desc)&.first
+    end
+
+    def store_orders
+      return unless customer && store
+
+      @store_orders ||= customer.completed_orders_for_store(store)
     end
   end
 end
