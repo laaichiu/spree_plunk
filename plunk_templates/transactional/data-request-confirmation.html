@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Confirm your {{store_name | escape ?? Shop}} data request</title>
+</head>
+<body style="margin:0; padding:32px 12px; background:#f6f5f2; color:#111111; font-family:Arial, Helvetica, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:100%; max-width:640px; background:#ffffff; border:1px solid #e7e5df;">
+        <tr><td style="padding:32px 36px;">
+          <p style="margin:0; font-size:12px; letter-spacing:.16em; text-transform:uppercase;">{{store_name | escape ?? Shop}}</p>
+          <h1 style="margin:24px 0 12px; font-size:30px; font-weight:400;">Confirm your request</h1>
+          {% if kind == "erasure" %}
+            <p style="margin:0; font-size:15px; line-height:24px; color:#4b4843;">Confirm your request to delete your account and associated personal data.</p>
+          {% else %}
+            <p style="margin:0; font-size:15px; line-height:24px; color:#4b4843;">Confirm your request for a copy of the personal data associated with your account.</p>
+          {% endif %}
+          <p style="margin:28px 0;"><a href="{{confirmation_url | escape}}" style="display:inline-block; padding:14px 22px; background:#111111; color:#ffffff; text-decoration:none;">Confirm request</a></p>
+          {% if expires_at != blank %}<p style="font-size:13px; line-height:21px; color:#6f6b64;">This confirmation link expires at {{expires_at | escape}}.</p>{% endif %}
+          <p style="font-size:13px; line-height:21px; color:#6f6b64;">If you did not make this request, you can ignore this email.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

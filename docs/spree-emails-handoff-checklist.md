@@ -1,8 +1,8 @@
 # `spree_emails` Handoff Checklist
 
-Last updated: 2026-10-23
+Last updated: 2026-10-31
 
-This checklist is for host apps that remove `spree_emails` and expect `spree_plunk` plus hosted Plunk to own customer-facing transactional sends.
+This checklist is for host apps evaluating a handoff from `spree_emails` to `spree_plunk` plus hosted Plunk. `spree_plunk` owns the email types marked implemented in the matrix; removing `spree_emails` also removes unsupported flows listed under Known Boundaries.
 
 ## Preflight
 
@@ -23,14 +23,14 @@ Expected preflight signals when `spree_emails` has been removed:
 
 - `spree_emails gem loaded: false`
 - `Spree::Emails::Engine: missing`
-- `Spree::OrderMailer`, `Spree::FulfillmentMailer`, `Spree::ReturnMailer`, and `Spree::NewsletterMailer`: `missing`
+- `Spree::OrderMailer`, `Spree::OrderGroupMailer`, `Spree::CustomerMailer`, `Spree::FulfillmentMailer`, `Spree::ReturnMailer`, `Spree::NewsletterMailer`, `Spree::DigitalAssetMailer`, `Spree::CompanyMailer`, and `Spree::SellerMailer`: `missing`
 - `spree_plunk gem loaded: true`
 - `transactional master switch: ON`
 - the inspector prints the configured sender domain; verify separately in Plunk that this domain is verified before sending
 
-On Spree 6.0.0.rc5 and later, also open **Settings → Emails → Templates**. `spree_plunk` registers the seven customer email types it sends, Spree's shared layout, and the shared partials those templates render. The editor works while the `spree_emails` engine and mailers are absent. A published Spree override is rendered by Spree and delivered through Plunk's inline send fields. Drafts do not affect delivery. Without a published Spree version, the configured Plunk Template ID is used; if no ID is configured, delivery uses the presenter's inline HTML body.
+On Spree 6.0.x, also open **Settings → Emails → Templates**. `spree_plunk` registers twelve customer email types it sends, Spree's shared layout, and the shared partials those templates render. Seller lifecycle messages use their Plunk Template IDs because Spree does not register seller templates in this editor. The editor works while the `spree_emails` engine and mailers are absent. A published Spree override is rendered by Spree and delivered through Plunk's inline send fields. Drafts do not affect delivery. Without a published Spree version, the configured Plunk Template ID is used; if no ID is configured, delivery uses the presenter's inline HTML body. Plunk sends also honor the store's **Send consumer transactional emails** setting; seller messages honor the store's seller transactional email setting.
 
-If `spree_emails` is absent and a row says `none when spree_emails absent`, that email type will not be sent until both the transactional master switch and its `spree_plunk` type switch are enabled.
+If `spree_emails` is absent, only email types marked **Implemented** are handed off by this extension. Each still requires an active integration, the transactional master switch, its `spree_plunk` type switch, and the applicable store-level consumer or seller transactional preference. The handoff inspector reports these gates and flags a potential duplicate when both senders are eligible.
 
 ## Validation Levels
 
@@ -59,13 +59,13 @@ When `spree_emails` has been removed, duplicates from `Spree::OrderMailer`, `Spr
 
 ## Automated Validation
 
-The RSpec suite covers the Spree 6 event names, presenters, job idempotency, preference migrations, and rendering previews for all seven registered customer email templates. It verifies the Plunk HTTP request with stubs; it does not verify live Plunk delivery or replace the host-app checks in **Live Verification Steps**.
+The RSpec suite covers the Spree 6 event names, presenters, job idempotency, preference migrations, and rendering previews for all twelve registered customer email templates. It verifies the Plunk HTTP request with stubs; it does not verify live Plunk delivery or replace the host-app checks in **Live Verification Steps**. The handoff inspector lists the supported email types, including the newer digital asset, company invitation, data request/export, and seller lifecycle types, and evaluates the active integration and store-level email gates.
 
 ## Handoff Matrix
 
 | Email type | Trigger | Current `spree_plunk` capability | Required switch | Expected success signal | Duplicate guard |
 | --- | --- | --- | --- | --- | --- |
-| Password reset | Store API customer password reset request | Implemented | `password_reset_email_enabled` | Plunk delivery contains reset URL/token as non-persistent data | No bundled `spree_emails` Store API reset mailer in current local Spree source |
+| Password reset | Store API customer password reset request | Implemented | `password_reset_email_enabled` | Plunk delivery contains reset URL/token as non-persistent data | Keep only one sender for this event when `spree_emails` is installed |
 | Newsletter confirmation | Newsletter subscription request | Implemented | `newsletter_confirmation_email_enabled` | Plunk delivery contains verification URL/token as non-persistent data | Disable any other newsletter confirmation sender |
 | Order confirmation | Checkout completion with `notify_customer: true` | Implemented | `order_confirmation_email_enabled` | Plunk delivery accepted and order `confirmation_delivered` becomes true | Skips when `notify_customer: false` or already delivered |
 | Split-checkout confirmation | `order_group.completed` with `notify_customer: true` | Implemented | `order_confirmation_email_enabled` | Plunk delivery accepted and order group `confirmation_delivered` becomes true | Sends one purchase-level confirmation and suppresses child-order confirmations |
@@ -74,6 +74,12 @@ The RSpec suite covers the Spree 6 event names, presenters, job idempotency, pre
 | Fulfillment notification | `fulfillment.fulfilled` event | Implemented | `fulfillment_fulfilled_email_enabled` | Plunk delivery contains tracking and fulfillment item details | Choose one sender when `spree_emails` is present |
 | Return refund | `return.refunded` event | Implemented | `return_refunded_email_enabled` | Plunk delivery contains refunded amount and returned-item details | Choose one sender when `spree_emails` is present |
 | Store owner notification | Order or order-group completion when store has `new_order_notifications_email` | Implemented | `store_owner_notification_email_enabled` | Plunk delivery accepted and order or order group `store_owner_notification_delivered` becomes true | Skips when already delivered |
+| Digital downloads ready/resend | `order.placed`, `order.resend_digital_links_email` | Implemented | `digital_asset_ready_email_enabled` | Plunk delivery includes Spree-generated download URLs as non-persistent data | One sender per email type; do not put bearer URLs in persistent contact fields. |
+| Company invitation | `company_invitation.created` | Implemented | `company_invitation_email_enabled` | Plunk delivery includes acceptance URL as non-persistent data | Pending state is checked again when the job sends. |
+| Data-request confirmation | `data_request.confirmation_requested` | Implemented | `data_request_confirmation_email_enabled` | Plunk delivery includes Spree's confirmation URL as non-persistent data | Only confirmable requests are sent. |
+| Data export ready | `data_request.completed` for downloadable access requests | Implemented | `data_export_ready_email_enabled` | Plunk delivery includes Spree's signed download URL as non-persistent data | Erasure requests intentionally receive no export email. |
+| Seller approved/suspended/rejected | `seller.approved`, `seller.suspended`, `seller.rejected` | Implemented | Type-specific email switch and store seller transactional email setting | Plunk delivery goes to seller team users and contact email | Use seller-specific Plunk Template IDs; internal notes/reasons are excluded. |
+| Admin payment link | Extension Admin API action | Implemented through `POST /api/v3/admin/orders/:order_id/payment_link` | `payment_link_email_enabled` | Returns `202 Accepted` and queues a Plunk send for an incomplete order | Requires `write_orders`; stock Spree Dashboard does not call this endpoint, so an Admin client or host Dashboard plugin must invoke it. |
 
 ## Live Verification Steps
 
@@ -82,6 +88,7 @@ The RSpec suite covers the Spree 6 event names, presenters, job idempotency, pre
 3. Run the handoff inspector and save the output with the test notes.
 4. Confirm the intended `spree_plunk` email switches are enabled.
 5. Trigger each enabled email type from its normal Spree or storefront workflow.
+   - For the Admin payment link, call `POST /api/v3/admin/orders/:order_id/payment_link` with an Admin token authorized to write orders.
 6. Watch Sidekiq for `SpreePlunk::SendTransactionalEmailJob`.
 7. Confirm Plunk delivery or failure logs for the matching recipient and email type.
 8. Confirm Spree state markers when applicable:
@@ -92,13 +99,12 @@ The RSpec suite covers the Spree 6 event names, presenters, job idempotency, pre
 
 ## Known Boundaries
 
-`spree_plunk` does not currently replace these Spree/Rails-owned mailers:
+Removing `spree_emails` still removes these flows, which `spree_plunk` does not replace. Assign another sender or confirm each flow is intentionally unused before removing the package:
 
-- customer registration confirmation or welcome mail, because the current local Spree source has no explicit `spree_plunk` event boundary for it
+- customer registration confirmation or welcome mail, because the current Spree source has no confirmed direct event boundary for it
 - invitations from `Spree::InvitationMailer`
 - export completion from `Spree::ExportMailer`
 - report completion from `Spree::ReportMailer`
 - webhook endpoint disabled notifications from `Spree::WebhookMailer`
-- Admin payment-link emails; Spree currently has no event trigger this extension can subscribe to.
 
-These are outside `spree_emails` storefront transactional replacement. Replacing them needs separate ownership, recipient, template data, and failure-behavior decisions.
+The Admin payment-link email is supported by the extension endpoint, but the stock Dashboard does not expose an action that calls it. A host Dashboard plugin or another authenticated Admin API client must invoke it.

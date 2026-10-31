@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your {{store_name | escape ?? Shop}} data export is ready</title>
+</head>
+<body style="margin:0; padding:32px 12px; background:#f6f5f2; color:#111111; font-family:Arial, Helvetica, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:100%; max-width:640px; background:#ffffff; border:1px solid #e7e5df;">
+        <tr><td style="padding:32px 36px;">
+          <p style="margin:0; font-size:12px; letter-spacing:.16em; text-transform:uppercase;">{{store_name | escape ?? Shop}}</p>
+          <h1 style="margin:24px 0 12px; font-size:30px; font-weight:400;">Your data export is ready</h1>
+          <p style="margin:0; font-size:15px; line-height:24px; color:#4b4843;">The requested copy of your personal data is ready to download.</p>
+          <p style="margin:28px 0;"><a href="{{download_url | escape}}" style="display:inline-block; padding:14px 22px; background:#111111; color:#ffffff; text-decoration:none;">Download your data</a></p>
+          {% if expires_at != blank %}<p style="font-size:13px; line-height:21px; color:#6f6b64;">For your privacy, this download link expires at {{expires_at | escape}}.</p>{% endif %}
+          <p style="font-size:13px; line-height:21px; color:#6f6b64;">Keep this link private. It provides access to personal information associated with your account.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
